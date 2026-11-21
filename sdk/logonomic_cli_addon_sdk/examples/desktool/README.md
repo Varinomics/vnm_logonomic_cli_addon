@@ -69,6 +69,11 @@ Change the fill color `#234b59` to `#234b58` in its `assets/desk.svg` and
 validate the copy. The validator reports `digest_mismatch assets/desk.svg`.
 Restore the original file to validate it again. To ship your own artwork,
 edit the source asset and rebuild the package so the index includes its new bytes.
+
+On desktop builds that log rejected packages, open **System Log** from the
+title bar. Set **Level** to **L5 [debug warning]** and enter
+`org.example.desktool` in **Filter**. If the host rejected a changed asset,
+the entry includes `digest_mismatch` and the asset's package-relative path.
 For a valid package with an empty scan, check the parent directory and run
 `desktool` from the shell used to start the profile.
 
