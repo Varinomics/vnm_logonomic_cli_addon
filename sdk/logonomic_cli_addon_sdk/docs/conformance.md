@@ -59,8 +59,9 @@ representative inputs and inspect the results in a [simulator transcript](#scrip
 
 The suite runs the simple probes in one adapter session and gives each
 destabilizing check a session of its own, so that a crash or hang is
-attributed to the check that provoked it. When the handshake itself fails,
-every later check that needs a session reports that failure.
+attributed to the check that provoked it. An initial handshake failure
+ends the run at `handshake.completes`. If a later check cannot start its own
+session, subsequent checks that need a new session report that same failure.
 
 ### Checks
 
