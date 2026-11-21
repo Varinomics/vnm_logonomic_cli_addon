@@ -1584,7 +1584,7 @@ private:
             // both hosts must terminate it instead of racing a clean EOF.
             hang_forever();
         }
-        if (m_behavior == Behavior::RESULT_THEN_EXIT) {
+        if (m_behavior == Behavior::RESULT_THEN_EXIT || m_observations.mode == "result-then-exit") {
             constexpr char k_final_stderr[] = "result-then-exit stderr\n";
             (void)std::fwrite(k_final_stderr, 1, sizeof(k_final_stderr) - 1, stderr);
             std::fflush(stderr);
