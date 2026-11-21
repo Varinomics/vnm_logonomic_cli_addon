@@ -5,6 +5,7 @@
 #include "logonomic_cli_addon/limits.h"
 #include "logonomic_cli_addon/package_source.h"
 #include "logonomic_cli_addon/sha256.h"
+#include "native_io_path.h"
 #include "strict_json.h"
 
 #include <iterator>
@@ -74,10 +75,10 @@ std::optional<std::string> expected_profile_storage_root(
     }
 
     std::error_code error;
-    const fs::path absolute_base = fs::absolute(profile_storage_root, error);
+    const fs::path absolute_base  = fs::absolute(profile_storage_root, error);
     const fs::path canonical_base = error
         ? fs::path{}
-        : fs::weakly_canonical(absolute_base, error);
+        : fs::weakly_canonical(native_io_path(absolute_base), error);
     if (error) {
         if (out_error != nullptr) {
             *out_error = "cannot resolve " + path_to_utf8(profile_storage_root) + ": " + error.message();
@@ -88,9 +89,10 @@ std::optional<std::string> expected_profile_storage_root(
     const fs::path root         = package_root / scope;
     for (const fs::path& directory : {package_root, root}) {
         error.clear();
-        const fs::file_status status = fs::symlink_status(directory, error);
+        const auto io_path = native_io_path(directory);
+        const auto status  = fs::symlink_status(io_path, error);
         if ((error && error != std::errc::no_such_file_or_directory) ||
-            (fs::exists(status) && (is_link_like(directory, status) || !fs::is_directory(status))))
+            (fs::exists(status) && (is_link_like(io_path, status) || !fs::is_directory(status))))
         {
             if (out_error != nullptr) {
                 *out_error = path_to_utf8(directory) + " is not an owned directory";
@@ -128,7 +130,8 @@ std::optional<std::string> allocate_profile_storage_root(
     const fs::path package_root   = root.parent_path();
     const fs::path canonical_base = package_root.parent_path();
     std::error_code error;
-    fs::create_directories(canonical_base, error);
+    const auto base_io_path = native_io_path(canonical_base);
+    fs::create_directories(base_io_path, error);
     if (error) {
         if (out_error != nullptr) {
             *out_error = "cannot create " + path_to_utf8(canonical_base) + ": " + error.message();
@@ -137,7 +140,8 @@ std::optional<std::string> allocate_profile_storage_root(
     }
     for (const fs::path& directory : {package_root, root}) {
         error.clear();
-        const fs::file_status before = fs::symlink_status(directory, error);
+        const auto io_path = native_io_path(directory);
+        const auto before  = fs::symlink_status(io_path, error);
         if (error && error != std::errc::no_such_file_or_directory) {
             if (out_error != nullptr) {
                 *out_error = "cannot inspect " + path_to_utf8(directory) + ": " + error.message();
@@ -145,13 +149,13 @@ std::optional<std::string> allocate_profile_storage_root(
             return std::nullopt;
         }
         error.clear();
-        if (fs::exists(before) && (is_link_like(directory, before) || !fs::is_directory(before))) {
+        if (fs::exists(before) && (is_link_like(io_path, before) || !fs::is_directory(before))) {
             if (out_error != nullptr) {
                 *out_error = path_to_utf8(directory) + " is not an owned directory";
             }
             return std::nullopt;
         }
-        if (!fs::exists(before) && !fs::create_directory(directory, error)) {
+        if (!fs::exists(before) && !fs::create_directory(io_path, error)) {
             if (out_error != nullptr) {
                 *out_error = "cannot create " + path_to_utf8(directory) + ": " + error.message();
             }
@@ -163,8 +167,8 @@ std::optional<std::string> allocate_profile_storage_root(
             }
             return std::nullopt;
         }
-        const fs::file_status after = fs::symlink_status(directory, error);
-        if (error || is_link_like(directory, after) || !fs::is_directory(after)) {
+        const fs::file_status after = fs::symlink_status(io_path, error);
+        if (error || is_link_like(io_path, after) || !fs::is_directory(after)) {
             if (out_error != nullptr) {
                 *out_error = path_to_utf8(directory) + " did not resolve to an owned directory";
             }
@@ -183,10 +187,10 @@ std::optional<std::string> allocate_profile_storage_root(
 #endif
     }
 
-    const fs::path canonical = fs::canonical(root, error);
+    const fs::path canonical = fs::canonical(native_io_path(root), error);
     const fs::path relative = error
         ? fs::path{}
-        : fs::relative(canonical, canonical_base, error);
+        : fs::relative(native_io_path(canonical), base_io_path, error);
     if (error || relative.empty() || relative.is_absolute() || *relative.begin() == "..") {
         if (out_error != nullptr) {
             *out_error = "profile-storage path escaped its host-owned root";

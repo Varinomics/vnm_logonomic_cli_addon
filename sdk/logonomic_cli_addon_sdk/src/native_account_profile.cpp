@@ -1,5 +1,6 @@
 #include "logonomic_cli_addon/accounts.h"
 #include "logonomic_cli_addon/package_source.h"
+#include "native_io_path.h"
 
 #include <utility>
 
@@ -23,13 +24,6 @@ enum class Directory_case
 };
 
 enum class Path_use { DERIVE_KEY, COMPARE_GRANT, VERIFY_HISTORICAL_KEY };
-
-std::wstring native_io_path(const std::wstring& path)
-{
-    if (path.starts_with(LR"(\\?\)") || path.starts_with(LR"(\\.\)")) return path;
-    if (path.starts_with(LR"(\\)")) return LR"(\\?\UNC\)" + path.substr(2);
-    return LR"(\\?\)" + path;
-}
 
 Directory_case directory_case(const std::wstring& path)
 {

@@ -17,6 +17,7 @@
 #include "logonomic_cli_addon/session_contracts.h"
 #include "logonomic_cli_addon/sha256.h"
 #include "logonomic_cli_addon/svg_subset.h"
+#include "native_io_path.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -592,8 +593,34 @@ bool test_assets_import_and_storage_contracts()
     SDK_CHECK(!addon::expected_profile_storage_root(base, escaping_id, &error).has_value(),
         "resume queries enforce allocation's package containment");
 
+#ifdef _WIN32
+    const std::string package_id = "org.example." + std::string(57, 'x') + "." + std::string(58, 'x');
+    auto nested_base = fs::canonical(base) / "profile-storage";
+    while ((nested_base / package_id / "default").native().size() < 250) {
+        nested_base /= "profile-storage";
+    }
+    auto deep_base = nested_base;
+    while (deep_base.native().size() < 260) {
+        deep_base /= "profile-storage";
+    }
+    for (const auto& location : {nested_base, deep_base}) {
+        const auto scope_path = location / package_id / "default";
+        const auto spelling   = addon::path_to_utf8(scope_path);
+        SDK_CHECK(addon::expected_profile_storage_root(location, package_id, &error) == spelling &&
+            !fs::exists(addon::native_io_path(location)), "a long expected root is resolved without creating its base");
+        SDK_CHECK(addon::allocate_profile_storage_root(location, package_id, &error) == spelling,
+            "allocating a long Windows profile root must preserve its canonical spelling: " + error);
+        SDK_CHECK(fs::is_directory(addon::native_io_path(scope_path)), "the long package scope must exist on disk");
+
+        const auto extended = addon::native_io_path(location);
+        SDK_CHECK(addon::expected_profile_storage_root(extended, package_id, &error) == spelling &&
+            addon::allocate_profile_storage_root(extended, package_id, &error) == spelling,
+            "an extended spelling must reopen the same profile scope");
+    }
+#endif
+
     std::error_code remove_error;
-    fs::remove_all(base, remove_error);
+    fs::remove_all(addon::native_io_path(base), remove_error);
     return true;
 }
 
