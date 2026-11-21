@@ -59,7 +59,9 @@ terminated by a newline. Send diagnostics to stderr. A live operation
 requires agreement between the indexed capability declaration, the adapter's
 handshake and the target desktop's supported versions. Each capability
 defines its own prerequisites. Check the desktop's
-`cli-addon-core-compatibility.json` when choosing what to implement.
+`cli-addon-core-compatibility.json` when choosing what to implement. To
+pin your SDK checkout or find the native qualification evidence, see
+[Match a desktop release](../../README.md#match-a-desktop-release).
 [Package layout](docs/package_contract.md#package-layout-and-authority) ·
 [Process environment](docs/process_contract.md) · [Core protocol](docs/core_protocol.md)
 

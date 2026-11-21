@@ -38,9 +38,41 @@ commands. The host additionally requires CMake 3.22 or newer, Qt 6.12 Core,
 
 ## Match a desktop release
 
-Open `cli-addon-core-compatibility.json` beside the Logonomic executable to
-see which protocol and capability versions that release supports. To
-reproduce its tools and documentation from retained release evidence, use
-the `vnm_logonomic_cli_addon` revision in `release-source-tuple.json`. For a
-release that built the SDK in the desktop repository, use
-`sdk/logonomic_cli_addon_sdk` at the recorded application revision.
+**What can this desktop run?** Open `cli-addon-core-compatibility.json` beside
+the target Logonomic executable. It lists that artifact's supported package
+formats, protocol generations and exact capability versions. To see what
+was **tested**, consult the release owner's retained qualification evidence
+for the package and platform. Match the package generation digest and core
+artifact digest to the native test results. The desktop support policy
+explains how a release selects its oldest and newest maintained endpoints.
+[Publication qualification](https://github.com/Varinomics/Logonomic/blob/master/docs/external_agent_client_support_policy.md#publication-qualification) ·
+[Shared provider test workflow](https://github.com/Varinomics/Logonomic/blob/master/.github/workflows/cli-addon-provider.yml)
+
+**Which SDK source should I use?** For a released desktop, take the full
+`commit` from the `sources` row with key `vnm_logonomic_cli_addon` in its
+retained `release-source-tuple.json`. Use the repository in that row. For an
+older desktop that carried the SDK in-tree, use its `application` row and
+the same `sdk/logonomic_cli_addon_sdk` subdirectory. For your own tested
+combination, record the full SDK and provider commits with the desktop
+artifact and test results. With access to the SDK repository, a clean
+checkout for an independently maintained SDK looks like this.
+
+```sh
+git clone --no-checkout https://github.com/Varinomics/vnm_logonomic_cli_addon.git pinned-addon-sdk
+git -C pinned-addon-sdk checkout --detach <full-sdk-commit>
+git -C pinned-addon-sdk rev-parse HEAD
+```
+
+Replace `<full-sdk-commit>` with the recorded 40-character value and confirm
+that `rev-parse` prints it. Set the provider's
+`LOGONOMIC_CLI_ADDON_SDK_SOURCE` to the absolute
+`pinned-addon-sdk/sdk/logonomic_cli_addon_sdk` directory at configure time.
+Use a fresh build tree when switching revisions. To assess a subsequent
+update, compare the relevant contracts and headers between the two commits
+and rerun the provider tests. [Provider build instructions](sdk/logonomic_cli_addon_sdk/docs/sdk_tools.md#building-an-existing-provider)
+
+The SDK repository is private. The repository owner handles access and
+questions about redistribution. The SDK version identifies its source
+library. The support policy specifies no SDK-wide source or binary
+compatibility guarantee or minimum retention period for a capability pair.
+[Desktop and add-on support policy](https://github.com/Varinomics/Logonomic/blob/master/docs/external_agent_client_support_policy.md#independently-released-core-and-add-on-packages)
