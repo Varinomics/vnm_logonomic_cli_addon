@@ -12,7 +12,7 @@
 # add_subdirectory and calls the function from its own directory scope must
 # assemble the same packages as the SDK's own CMakeLists.txt does.
 
-# logonomic_cli_addon_sdk_add_fixture_packages(OUTPUT_DIRECTORY <dir> TARGET <name>)
+# logonomic_cli_addon_sdk_add_fixture_packages(OUTPUT_DIRECTORY <dir> TARGET <name> [PACKAGE_IDS <ids>...])
 #
 # Assembles every fixture package under <dir>/<package id>/ after the adapter,
 # the helper and the index tool are built: the shared static files, the
@@ -22,7 +22,7 @@
 # logonomic_cli_addon_index. <name> is a target that depends on all of them;
 # callers add it as a dependency of whatever consumes the packages.
 function(logonomic_cli_addon_sdk_add_fixture_packages)
-    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "OUTPUT_DIRECTORY;TARGET" "")
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "OUTPUT_DIRECTORY;TARGET" "PACKAGE_IDS")
     if(NOT ARG_OUTPUT_DIRECTORY OR NOT ARG_TARGET)
         message(FATAL_ERROR
             "logonomic_cli_addon_sdk_add_fixture_packages needs OUTPUT_DIRECTORY and TARGET")
@@ -145,10 +145,15 @@ function(logonomic_cli_addon_sdk_add_fixture_packages)
 
     file(GLOB_RECURSE _static_files CONFIGURE_DEPENDS "${_source_dir}/*")
 
+    set(_remaining_ids ${ARG_PACKAGE_IDS})
     set(_outputs)
     foreach(_entry IN LISTS _packages)
         string(FIND "${_entry}" "|" _separator)
         string(SUBSTRING "${_entry}" 0 ${_separator} _package_id)
+        if(ARG_PACKAGE_IDS AND NOT _package_id IN_LIST ARG_PACKAGE_IDS)
+            continue()
+        endif()
+        list(REMOVE_ITEM _remaining_ids "${_package_id}")
         math(EXPR _defect_start "${_separator} + 1")
         string(SUBSTRING "${_entry}" ${_defect_start} -1 _defect)
 
@@ -215,5 +220,8 @@ function(logonomic_cli_addon_sdk_add_fixture_packages)
         list(APPEND _outputs "${_destination}/package.files.json")
     endforeach()
 
+    if(_remaining_ids)
+        message(FATAL_ERROR "Unknown add-on fixture package IDs: ${_remaining_ids}")
+    endif()
     add_custom_target(${ARG_TARGET} DEPENDS ${_outputs})
 endfunction()
