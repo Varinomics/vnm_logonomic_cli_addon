@@ -52,9 +52,9 @@ patch, and separately runs the native command.
 3. Start your installed Logonomic from that shell with
    `--user-data-dir <absolute-profile-directory>`. If that profile is open,
    close it before restarting. In **Launcher Configurations**, select **Scan
-   for launchers** (or **Rescan**), then launch the discovered **DeskTool** recipe.
-   The terminal prints
-   `DESKTOOL_READY`.
+   for launchers** (or **Rescan**). Open a local Git repository in the profile.
+   Expand it in **Repositories** and click **DeskTool** under **LAUNCHERS**.
+   The terminal prints `DESKTOOL_READY`.
 4. After editing the package, build it again and restart that profile so the
    host reads the new generation. To remove the override, clear
    `development_root` and restart. For regular installation, copy the complete

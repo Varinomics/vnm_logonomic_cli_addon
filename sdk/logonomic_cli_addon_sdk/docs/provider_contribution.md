@@ -52,8 +52,9 @@ test npm bin directory on the desktop's inherited `PATH` and set
 `XDG_CONFIG_HOME` to a disposable directory containing the test `.copilot`
 profile. The Logonomic profile and the vendor profile are separate.
 
-Start Logonomic with the same profile, scan in **Launcher Configurations**,
-and launch the saved shell recipe in a repository. Verify that Copilot uses
+Start Logonomic with the same profile and scan in **Launcher Configurations**.
+Open a local Git repository in the profile, expand it in **Repositories**
+and click the saved Copilot launcher under **LAUNCHERS**. Verify that Copilot uses
 the selected profile. To return to the bundled generation, remove the
 development override with the instance closed and restart. See the
 [installation and replacement instructions](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
