@@ -3,6 +3,8 @@
 #include "logonomic_cli_addon/ids.h"
 #include "logonomic_cli_addon/protocol.h"
 
+#include <QPointer>
+#include <QScopedPointer>
 #include <QThread>
 #include <QTimer>
 
@@ -59,10 +61,19 @@ std::optional<Request_failure> unavailable_pair(Generation_client& client, const
 
 struct Request_broker::Pending
 {
+    Pending(Broker_request call, Completion complete, Prepare authorize)
+    :
+        request(std::move(call)),
+        callback(std::move(complete)),
+        prepare(std::move(authorize))
+    {}
+
     Broker_request request;
     Completion     callback;
     Prepare        prepare;
-    QTimer*        timer = nullptr; // Allocated only once send_invoke accepts the request
+    // Detached terminal deliveries can outlive the broker. Each accepted
+    // request owns its timer, including while its own timeout slot runs.
+    QScopedPointer<QTimer, QScopedPointerDeleteLater> timer;
     bool           cancelling = false;
     bool           deadline_expired = false;
 
@@ -70,7 +81,7 @@ struct Request_broker::Pending
     {
         if (timer) {
             timer->stop();
-            timer->deleteLater();
+            timer.reset();
         }
         result.deadline_expired = deadline_expired;
         callback(std::move(result));
@@ -82,10 +93,14 @@ Request_broker::Request_broker(Generation_client& client)
     m_client(client)
 {
     connect(&client, &Generation_client::ready, this, [this]() {
+        const QPointer<Request_broker> owner(this);
         std::deque<QByteArray> queue;
         queue.swap(m_queue);
         for (const auto& id : queue) {
-            dispatch(id);
+            if (!owner) {
+                return;
+            }
+            owner->dispatch(id);
         }
     });
     connect(&client, &Generation_client::retired, this,
@@ -98,6 +113,20 @@ Request_broker::Request_broker(Generation_client& client)
         complete(id, {result_status(status), std::move(reason), std::move(message),
             std::move(payload), Request_completion::ADAPTER_RESULT});
     });
+}
+
+Request_broker::~Request_broker()
+{
+    if (!m_pending.isEmpty()) {
+        if (m_client.state() == State::TERMINALLY_UNAVAILABLE) {
+            // Another retirement listener can release the broker before
+            // Qt reaches its own retired connection.
+            retired(m_client.retirement_reason(), QStringLiteral("the add-on generation has retired"));
+        }
+        else {
+            begin_shutdown();
+        }
+    }
 }
 
 std::optional<Request_failure> Request_broker::admission_failure() const
@@ -129,8 +158,8 @@ void Request_broker::invoke(Broker_request request, Completion callback, Prepare
     if (request.deadline_ms <= 0) {
         request.deadline_ms = sdk::limits::k_default_invoke_deadline_ms;
     }
-    m_pending.insert(id, std::make_shared<Pending>(Pending{
-        std::move(request), std::move(callback), std::move(prepare)}));
+    m_pending.insert(id, std::make_shared<Pending>(
+        std::move(request), std::move(callback), std::move(prepare)));
     if (m_client.state() == State::READY) {
         dispatch(id);
         return;
@@ -148,12 +177,13 @@ void Request_broker::dispatch(const QByteArray& id)
     if (!pending) {
         return;
     }
+    const QPointer<Request_broker> owner(this);
     auto& request = pending->request;
     auto failure = unavailable_pair(m_client, request.capability);
     if (!failure && pending->prepare) {
         failure = pending->prepare(request.payload);
     }
-    if (m_pending.value(id) != pending) {
+    if (!owner || owner->m_pending.value(id) != pending) {
         return;
     }
     if (failure) {
@@ -162,7 +192,7 @@ void Request_broker::dispatch(const QByteArray& id)
     }
     const Send_outcome outcome = m_client.send_invoke(id, request.capability.capability_id,
         request.capability.version, request.operation, request.payload, request.deadline_ms);
-    if (m_pending.value(id) != pending) {
+    if (!owner || owner->m_pending.value(id) != pending) {
         return;
     }
     if (!outcome.sent) {
@@ -172,10 +202,10 @@ void Request_broker::dispatch(const QByteArray& id)
         complete(id, {status, outcome.reason_code, outcome.message, {}, Request_completion::SEND_REFUSED});
         return;
     }
-    pending->timer = new QTimer(this);
+    pending->timer.reset(new QTimer);
     pending->timer->setSingleShot(true);
     pending->timer->setTimerType(Qt::PreciseTimer);
-    connect(pending->timer, &QTimer::timeout, this, [this, id]() { expire(id); });
+    connect(pending->timer.get(), &QTimer::timeout, this, [this, id]() { expire(id); });
     if (request.deadline_ms != sdk::limits::k_no_invoke_deadline_ms) {
         pending->timer->start(request.deadline_ms);
     }
@@ -203,7 +233,7 @@ void Request_broker::receive_traffic()
     }
 }
 
-void Request_broker::cancel(const QByteArray& id)
+void Request_broker::cancel(QByteArray id)
 {
     const auto pending = m_pending.value(id);
     if (!pending || m_client.state() == State::TERMINALLY_UNAVAILABLE) {
@@ -228,8 +258,9 @@ void Request_broker::start_cancel(const QByteArray& id, bool deadline_expired)
     if (deadline_expired) {
         m_client.record_request_event("deadline_expired", id);
     }
+    const QPointer<Request_broker> owner(this);
     m_client.send_cancel(id);
-    if (m_pending.value(id) == pending) {
+    if (owner && owner->m_pending.value(id) == pending) {
         pending->timer->start(sdk::limits::k_cancel_grace_ms);
     }
 }
@@ -256,11 +287,12 @@ void Request_broker::retired(const QString& reason, const QString& detail)
     // Commit every disposition before a terminal callback can re-enter and
     // cancel or close its siblings.
     const auto requests = std::exchange(m_pending, {});
+    const auto culprit = m_grace_culprit;
     for (auto it = requests.cbegin(); it != requests.cend(); ++it) {
         const auto& pending = it.value();
         Status status = pending->timer ? Status::GENERATION_RETIRED : Status::PACKAGE_UNAVAILABLE;
         QString message = detail;
-        if (it.key() == m_grace_culprit) {
+        if (it.key() == culprit) {
             status  = Status::TIMED_OUT;
             message = QStringLiteral("no terminal result arrived within the cancel grace");
         }
@@ -275,19 +307,23 @@ void Request_broker::begin_shutdown()
     }
     m_queue.clear();
     const auto requests = std::exchange(m_pending, {});
+    m_client.begin_shutdown();
     for (const auto& pending : requests) {
         pending->deliver({Status::GENERATION_RETIRED, QString::fromLatin1(sdk::reason::k_shutdown),
             QStringLiteral("CLI provider proxy is shutting down."), {}, Request_completion::RETIREMENT});
     }
-    m_client.begin_shutdown();
 }
 
 #ifdef LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS
 void Request_broker::expire_armed_requests_for_tests()
 {
+    const QPointer<Request_broker> owner(this);
     const auto ids = m_pending.keys();
     for (const auto& id : ids) {
-        const auto pending = m_pending.value(id);
+        if (!owner) {
+            return;
+        }
+        const auto pending = owner->m_pending.value(id);
         if (pending && pending->timer && pending->timer->isActive()) {
             expire(id);
         }

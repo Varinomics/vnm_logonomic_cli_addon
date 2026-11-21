@@ -9,6 +9,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <utility>
 
 namespace host = logonomic::cli_addon_host;
@@ -61,7 +62,8 @@ bool exercise(const QStringList& arguments)
     const host::Declared_capability probe{QStringLiteral("conformance-probe"), 1};
     host::Generation_client healthy_client({*positive, roots, arguments.at(2), arguments.at(3), platform, {probe}});
     host::Generation_client hanging_client({*blocked,  roots, arguments.at(2), arguments.at(3), platform, {probe}});
-    host::Request_broker healthy(healthy_client);
+    auto healthy_owner = std::make_unique<host::Request_broker>(healthy_client);
+    auto& healthy = *healthy_owner;
     host::Request_broker hung(hanging_client);
     QEventLoop loop;
     QTimer timeout;
@@ -126,7 +128,20 @@ bool exercise(const QStringList& arguments)
     ok &= check(wait_until([&]() { return results.contains("after-retirement"); }, sdk::limits::k_default_invoke_deadline_ms),
         "The healthy generation did not answer after the other generation retired.");
     ok &= check_result("after-retirement", Status::SUCCESS, Completion::ADAPTER_RESULT);
+    int shutdown_results = 0;
+    const auto release_on_shutdown = [&](const host::Broker_result& result) {
+        ok &= check(result.status == Status::GENERATION_RETIRED &&
+            result.reason_code == QLatin1String(sdk::reason::k_shutdown),
+            "Shutdown must settle both outstanding requests.");
+        ++shutdown_results;
+        healthy_owner.reset();
+    };
+    healthy.invoke({"shutdown-first", probe, QStringLiteral("sleep"), {{QStringLiteral("ms"), 60000}}},
+        release_on_shutdown);
+    healthy.invoke({"shutdown-second", probe, QStringLiteral("sleep"), {{QStringLiteral("ms"), 60000}}},
+        release_on_shutdown);
     healthy.begin_shutdown();
+    ok &= check(shutdown_results == 2, "Destroying the broker in the first callback lost the second result.");
     hung.begin_shutdown();
     ok &= check(wait_until([&]() { return healthy_client.custody_finished() && hanging_client.custody_finished(); },
         2 * sdk::limits::k_reap_deadline_ms), "Native custody did not finish for both generations.");

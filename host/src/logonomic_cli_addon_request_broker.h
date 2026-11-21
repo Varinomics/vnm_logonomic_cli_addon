@@ -58,13 +58,16 @@ public:
     using Prepare = std::function<std::optional<Request_failure>(QJsonObject&)>;
 
     explicit Request_broker(Generation_client& client);
+    // Releasing a broker with outstanding work closes the generation and
+    // completes that work. The client still owns its native shutdown receipt.
+    ~Request_broker() override;
     // Hosts that allocate resources before invoking can reject a closed or
     // full generation before doing that work. invoke enforces the bound.
     std::optional<Request_failure> admission_failure() const;
     // Optional consumer-specific authorization or resource acquisition runs
     // only after negotiation and immediately before the transport submission.
     void invoke(Broker_request request, Completion complete, Prepare prepare = {});
-    void cancel(const QByteArray& correlation_id);
+    void cancel(QByteArray correlation_id);
     void begin_shutdown();
 
 #ifdef LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS
