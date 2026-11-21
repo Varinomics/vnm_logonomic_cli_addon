@@ -162,7 +162,7 @@ endfunction()
 
 # Assemble one standard package in the calling project. The caller configures
 # generated/logonomic-cli-addon.json and supplies native executable targets;
-# package/{assets,capabilities,provenance,notices} are copied without filtering.
+# Present files under package/{assets,capabilities,provenance,notices} are copied without filtering.
 # Adapter/helper filenames retain the target name plus CMAKE_EXECUTABLE_SUFFIX.
 # QtCore recipes use logonomic_cli_addon_add_qt_package for their runtime stages.
 #
@@ -210,11 +210,23 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
         endforeach()
         list(APPEND package_index_dependencies "${macos_deployer}")
     endif()
-    file(GLOB_RECURSE package_files CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/package/assets/*"
-        "${capabilities_directory}/*"
-        "${CMAKE_CURRENT_SOURCE_DIR}/package/provenance/*"
-        "${CMAKE_CURRENT_SOURCE_DIR}/package/notices/*")
+    set(package_files)
+    set(copy_directories)
+    foreach(directory IN ITEMS assets capabilities provenance notices)
+        set(source "${CMAKE_CURRENT_SOURCE_DIR}/package/${directory}")
+        if(directory STREQUAL "capabilities")
+            set(source "${capabilities_directory}")
+        endif()
+        if((EXISTS "${source}" OR IS_SYMLINK "${source}") AND NOT IS_DIRECTORY "${source}")
+            message(FATAL_ERROR "Expected a package input directory at ${source}")
+        endif()
+        file(GLOB_RECURSE inputs CONFIGURE_DEPENDS "${source}/*")
+        if(inputs)
+            list(APPEND package_files ${inputs})
+            list(APPEND copy_directories COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${source}" "${package_directory}/${directory}")
+        endif()
+    endforeach()
     # Membership is an input too: deletions and additions with older timestamps
     # rebuild the index, while file(GENERATE) preserves unchanged no-op builds.
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/package-inputs.txt"
@@ -224,14 +236,7 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
         COMMAND "${CMAKE_COMMAND}" -E rm -rf "${package_directory}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory
             "${package_directory}/adapter" "${package_directory}/helpers"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/package/assets" "${package_directory}/assets"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${capabilities_directory}" "${package_directory}/capabilities"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/package/provenance" "${package_directory}/provenance"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/package/notices" "${package_directory}/notices"
+        ${copy_directories}
         COMMAND "${CMAKE_COMMAND}" -E copy
             "${CMAKE_CURRENT_BINARY_DIR}/generated/logonomic-cli-addon.json" "${package_directory}/logonomic-cli-addon.json"
         COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${ARG_ADAPTER}>"

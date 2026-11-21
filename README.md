@@ -6,7 +6,7 @@ Start with the [DeskTool launcher](sdk/logonomic_cli_addon_sdk/examples/desktool
 
 ## Build
 
-The default build uses a C++20 compiler and CMake 3.21 or newer. Configuring the SDK alone requires no Qt installation or private desktop checkout.
+The SDK library requires C++20 and CMake 3.21 or newer. The commands below also build and run the SDK tests using Ninja. On Windows and Linux the package-recipe tests require CMake 3.25 or newer. Install Python 3.9 or newer on Windows and macOS. On Linux use Python 3.11 or newer, patchelf, binutils and the Debian or Ubuntu package metadata and notices for the runtime libraries being packaged.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

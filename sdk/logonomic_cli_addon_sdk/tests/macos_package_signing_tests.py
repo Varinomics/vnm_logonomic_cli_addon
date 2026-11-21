@@ -101,11 +101,8 @@ class Macos_package_signing_tests(unittest.TestCase):
     def create_package(self, directory):
         package = Path(directory)
         (package / "adapter").mkdir()
-        (package / "provenance").mkdir()
         binary = package / "adapter/example"
         binary.write_bytes(struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0))
-        (package / "provenance/macos-runtime.json").write_text(json.dumps({
-            "signature": "ad-hoc", "files": [{"path": "adapter/example", "sha256": runtime.digest(binary)}]}))
         return package, binary
 
     def test_native_ownership_report_is_identical_across_build_directories(self):
@@ -130,6 +127,9 @@ class Macos_package_signing_tests(unittest.TestCase):
     def test_signing_precedes_provenance_and_first_index(self):
         with tempfile.TemporaryDirectory() as directory:
             package, binary = self.create_package(directory)
+            (package / "provenance").mkdir()
+            (package / "provenance/macos-runtime.json").write_text(json.dumps({
+                "signature": "ad-hoc", "files": [{"path": "adapter/example", "sha256": runtime.digest(binary)}]}))
             original = binary.read_bytes()
             index_called = []
 

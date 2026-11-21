@@ -1,0 +1,13 @@
+{
+  "bootstrap_version": 1,
+  "package_id": "org.example.desktool",
+  "release_version": "@PROJECT_VERSION@",
+  "platforms": ["@desktool_platform@"],
+  "adapter": {
+    "path": {"@desktool_platform@": "adapter/desktool_adapter@CMAKE_EXECUTABLE_SUFFIX@"},
+    "argv": [],
+    "environment": {}
+  },
+  "core_protocol_generations": [1],
+  "integrity_index": "package.files.json"
+}

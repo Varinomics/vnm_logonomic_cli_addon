@@ -1,0 +1,8 @@
+{
+  "capability_id": "presentation",
+  "version": 1,
+  "payload": {
+    "display_name": "DeskTool",
+    "icon": {"light": "assets/desk.svg", "dark": "assets/desk.svg"}
+  }
+}

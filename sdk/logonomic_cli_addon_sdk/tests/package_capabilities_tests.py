@@ -58,8 +58,7 @@ def run(*arguments):
 def exercise(options, root, generated):
     source = root / "source"
     build = root / "build"
-    for directory in ("assets", "capabilities", "provenance", "notices"):
-        (source / "package" / directory).mkdir(parents=True)
+    (source / "package/capabilities").mkdir(parents=True)
     (source / "CMakeLists.txt").write_text(PROJECT, encoding="utf-8")
     (source / "probe.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
     (source / "manifest.json.in").write_text(json.dumps(MANIFEST), encoding="utf-8")
@@ -91,7 +90,7 @@ def exercise(options, root, generated):
         run(options.cmake, "--build", build, "--config", "Release", "--parallel", "1", "--target", "probe_package")
 
     def verify(expected):
-        actual = {path.name: path.read_bytes() for path in (package / "capabilities").iterdir()}
+        actual = {path.name: path.read_bytes() for path in (package / "capabilities").glob("*")}
         if actual != expected:
             raise AssertionError(f"Sidecar source/membership mismatch: {actual!r} != {expected!r}")
         run(options.validate_tool, package, "--platform", platform)
@@ -131,6 +130,21 @@ def exercise(options, root, generated):
         verify(expected)
         if unchanged != (index.stat().st_mtime_ns, index.read_bytes()):
             raise AssertionError("The unselected source sidecars still drive package assembly")
+    else:
+        original.unlink()
+        source_only.unlink()
+        selected.rmdir()
+        assemble()
+        verify({})
+
+        assets = source / "package/assets"
+        assets.mkdir()
+        asset = assets / "recipe.txt"
+        asset.write_bytes(b"first authored asset")
+        assemble()
+        if (package / "assets/recipe.txt").read_bytes() != asset.read_bytes():
+            raise AssertionError("Adding the first asset must update the indexed package")
+        verify({})
     print(f"{'Generated' if generated else 'Default'} capability source and membership passed", flush=True)
 
 

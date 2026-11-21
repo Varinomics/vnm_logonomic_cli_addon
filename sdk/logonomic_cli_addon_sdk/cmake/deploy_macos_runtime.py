@@ -224,6 +224,7 @@ def deploy(args):
     report = {"schema_version": 1, "configuration": args.configuration, "signature": "ad-hoc",
               "vendor_debug_policy": "Required supplied runtimes retain their original debugging data; standalone symbols are omitted.",
               "files": observations}
+    (package / "provenance").mkdir(exist_ok=True)
     (package / "provenance/macos-runtime.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
