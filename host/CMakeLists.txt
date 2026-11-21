@@ -98,20 +98,27 @@ if(LOGONOMIC_CLI_ADDON_HOST_BUILD_TESTS)
             org.example.unknown-fixture-provider-surfaces
             org.example.unknown-fixture-hang-on-invoke)
 
+    function(logonomic_register_native_host_test name target)
+        add_test(NAME ${name}
+            COMMAND ${target} "${host_fixture_root}"
+                $<TARGET_FILE:logonomic_cli_addon_custodian> $<TARGET_FILE:logonomic_cli_addon_supervisor> ${ARGN})
+        set_tests_properties(${name} PROPERTIES TIMEOUT 45)
+        if(WIN32)
+            set_property(TEST ${name} PROPERTY ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+        endif()
+    endfunction()
     function(logonomic_add_native_host_test target source)
         add_executable(${target} ${source})
         target_link_libraries(${target} PRIVATE logonomic_cli_addon_host)
         add_dependencies(${target} logonomic_cli_addon_host_fixture_packages
             logonomic_cli_addon_custodian logonomic_cli_addon_supervisor)
-        add_test(NAME ${target}
-            COMMAND ${target} "${host_fixture_root}"
-                $<TARGET_FILE:logonomic_cli_addon_custodian> $<TARGET_FILE:logonomic_cli_addon_supervisor>)
-        set_tests_properties(${target} PROPERTIES TIMEOUT 45)
-        if(WIN32)
-            set_property(TEST ${target} PROPERTY ENVIRONMENT_MODIFICATION
-                "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
-        endif()
+        logonomic_register_native_host_test(${target} ${target})
     endfunction()
     logonomic_add_native_host_test(logonomic_cli_addon_generation_tests tests/generation_tests.cpp)
+    foreach(scenario IN ITEMS forced fault shutdown)
+        logonomic_register_native_host_test(logonomic_cli_addon_generation_idle_${scenario}
+            logonomic_cli_addon_generation_tests ${scenario})
+    endforeach()
     logonomic_add_native_host_test(logonomic_cli_addon_request_broker_tests tests/logonomic_cli_addon_request_broker_tests.cpp)
 endif()
