@@ -941,6 +941,7 @@ struct Observation_options
     std::uint16_t session_declaration_version = addon::k_structured_session_version;
     bool          accounts      = false;
     std::string   mode          = "success";
+    fs::path      export_enabled_file;
 };
 
 enum class Lifetime_response
@@ -1131,7 +1132,10 @@ public:
                 .parent_path().parent_path() / addon::sidecar_relative_path(
                     addon::k_conversation_export_capability_id, version);
             std::error_code conversation_error;
-            if (fs::is_regular_file(conversation_sidecar, conversation_error)) {
+            if (fs::is_regular_file(conversation_sidecar, conversation_error) &&
+                (m_observations.export_enabled_file.empty() ||
+                    fs::is_regular_file(m_observations.export_enabled_file, conversation_error)))
+            {
                 options.capabilities.push_back({addon::k_conversation_export_capability_id, version});
             }
         }
@@ -4988,6 +4992,10 @@ int main(int argc, char** argv)
         }
         if (argument == "--probe-mode" && i + 1 < argc) {
             observations.mode = argv[++i];
+            continue;
+        }
+        if (argument == "--export-when-file-exists" && i + 1 < argc) {
+            observations.export_enabled_file = addon::path_from_utf8(argv[++i]);
             continue;
         }
         return usage();
