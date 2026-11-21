@@ -8,10 +8,12 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QThread>
 #include <QTimer>
 
 #ifdef Q_OS_WIN
@@ -82,7 +84,7 @@ QByteArray adapter_hash(const QString& path)
     return file.open(QIODevice::ReadOnly) && digest.addData(&file) ? digest.result() : QByteArray{};
 }
 
-enum class Stop { ORDERLY, DIRECT_SHUTDOWN, FORCED, FAULT, SHUTDOWN_DURING_IDLE };
+enum class Stop { ORDERLY, DIRECT_SHUTDOWN, FORCED, FAULT, SHUTDOWN_DURING_IDLE, UNSOLICITED_EXIT };
 
 bool exercise_activation(host::Activation_context context, Stop stop)
 {
@@ -151,6 +153,17 @@ bool exercise_activation(host::Activation_context context, Stop stop)
                 client.begin_shutdown();
                 return;
             }
+            if (stop == Stop::UNSOLICITED_EXIT) {
+                // The fixture exits zero immediately after this result. Keep its
+                // ordered exit callback queued until native exit is an OS fact.
+                QDeadlineTimer deadline(sdk::limits::k_reap_deadline_ms);
+                while (!process_exited(pids.back()) && !deadline.hasExpired()) {
+                    QThread::msleep(5);
+                }
+                ok &= check(process_exited(pids.back()), "adapter exited before the host requested a stop");
+                (void)broker.begin_idle_stop();
+                return;
+            }
             if (stop == Stop::ORDERLY) {
                 QString error;
                 const QString lock = QDir(client.usage_writer_generation()).filePath(QStringLiteral(".lock"));
@@ -199,6 +212,9 @@ bool exercise_activation(host::Activation_context context, Stop stop)
         case Stop::FAULT:
             return check(retirement == Reason::ADAPTER_EXITED && client.idle_stop_outcome() == Outcome::NONE,
                 "unexpected nonzero adapter exit while stopping must remain a fault") && ok;
+        case Stop::UNSOLICITED_EXIT:
+            return check(retirement && retirement != Reason::IDLE_STOP && retirement != Reason::SHUTDOWN &&
+                client.idle_stop_outcome() == Outcome::NONE, "earlier unsolicited zero exit must remain a fault") && ok;
         case Stop::DIRECT_SHUTDOWN:
         case Stop::SHUTDOWN_DURING_IDLE:
             return check(retirement == Reason::SHUTDOWN && client.idle_stop_outcome() == Outcome::NONE,
@@ -231,7 +247,8 @@ int main(int argc, char** argv)
     }
     const QString scenario = args.value(4);
     if (!scenario.isEmpty()) {
-        const char* mode = scenario == "fault" ? "crash-on-shutdown" : "slow-shutdown";
+        const char* mode = scenario == "unsolicited_exit" ? "result-then-exit" :
+                           scenario == "fault"            ? "crash-on-shutdown" : "slow-shutdown";
         if (!check(set_shutdown_fixture(installation.path(), mode), "set fixture shutdown behavior")) {
             return 1;
         }
@@ -251,6 +268,7 @@ int main(int argc, char** argv)
     if (scenario == "forced")   return exercise_activation(context, Stop::FORCED) ? 0 : 1;
     if (scenario == "fault")    return exercise_activation(context, Stop::FAULT) ? 0 : 1;
     if (scenario == "shutdown") return exercise_activation(context, Stop::SHUTDOWN_DURING_IDLE) ? 0 : 1;
+    if (scenario == "unsolicited_exit") return exercise_activation(context, Stop::UNSOLICITED_EXIT) ? 0 : 1;
     if (!check(scenario.isEmpty(), "unknown test scenario")) {
         return 1;
     }
