@@ -15,7 +15,7 @@ SPEC = importlib.util.spec_from_file_location("prepare_ci", Path(__file__).resol
 PREPARE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PREPARE)
 
-OWNED = ("vnm_framework", "vnm_qt_dispatch", "vnm_cmake")
+OWNED = ("vnm_filesystem_observation", "vnm_qt_dispatch", "vnm_cmake")
 EXACT = {name: str(index) * 40 for index, name in enumerate(OWNED, start=1)}
 AQT = "git+https://github.com/miurahr/aqtinstall.git@" + "c" * 40
 
@@ -81,7 +81,7 @@ class Preparation_tests(unittest.TestCase):
             path = Path(directory) / "revisions.json"
             path.write_text(json.dumps({**EXACT, "logonomic": "a" * 40}), encoding="utf-8")
             self.assertEqual(PREPARE.read_revisions(path), EXACT)
-            path.write_text(json.dumps({"vnm_framework": EXACT["vnm_framework"]}), encoding="utf-8")
+            path.write_text(json.dumps({"vnm_filesystem_observation": EXACT["vnm_filesystem_observation"]}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "vnm_qt_dispatch"):
                 PREPARE.read_revisions(path)
             path.write_text(json.dumps({**EXACT, "vnm_cmake": "master"}), encoding="utf-8")
@@ -245,7 +245,7 @@ class Preparation_tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             cmake_args, dependencies, qt = self.run_main(root, ["--platform", "macos-arm64"])
-            self.assertIn(f"-DOBSERVATION_FRAMEWORK_SOURCE={(root / 'vnm_framework').as_posix()}", cmake_args)
+            self.assertIn(f"-DOBSERVATION_OBSERVATION_SOURCE={(root / 'vnm_filesystem_observation').as_posix()}", cmake_args)
             self.assertIn(f"-DFETCHCONTENT_SOURCE_DIR_VNM_CMAKE={(root / 'vnm_cmake').as_posix()}", cmake_args)
             self.assertIn(f"-DOBSERVATION_QTBASE_SOURCE={(root / 'qtbase').as_posix()}", cmake_args)
             self.assertIn("-DVNM_FILESYSTEM_OBSERVATION_BUILD_TESTS=OFF", cmake_args)

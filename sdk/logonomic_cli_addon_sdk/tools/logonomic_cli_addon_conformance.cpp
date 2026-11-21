@@ -13,11 +13,14 @@
 #include "logonomic_cli_addon/frame.h"
 #include "logonomic_cli_addon/host_simulator.h"
 #include "logonomic_cli_addon/ids.h"
+#include "logonomic_cli_addon/integrity_index.h"
 #include "logonomic_cli_addon/json.h"
+#include "logonomic_cli_addon/launcher_discovery.h"
 #include "logonomic_cli_addon/limits.h"
 #include "logonomic_cli_addon/managed_configuration.h"
 #include "logonomic_cli_addon/package_source.h"
 #include "logonomic_cli_addon/package_validator.h"
+#include "logonomic_cli_addon/presentation_record.h"
 #include "logonomic_cli_addon/process_proposal.h"
 #include "logonomic_cli_addon/protocol.h"
 #include "logonomic_cli_addon/session_contracts.h"
@@ -37,6 +40,10 @@ constexpr int k_probe_deadline_ms = 3000;
 
 const addon::Capability_pair k_probe{"conformance-probe", 1};
 const addon::Capability_pair k_profile_storage{addon::k_profile_storage_capability_id, addon::k_profile_storage_version};
+const addon::Capability_pair k_discovery{addon::k_launcher_discovery_capability_id, addon::k_launcher_discovery_version};
+const addon::Capability_pair k_preparation{
+    addon::k_launch_preparation_capability_id, addon::k_launch_preparation_execution_version};
+const addon::Capability_pair k_presentation{addon::k_presentation_capability_id, addon::k_presentation_version};
 
 class Report
 {
@@ -91,6 +98,47 @@ std::string pair_name(const addon::Capability_pair& pair)
     return pair.capability_id + "@" + std::to_string(pair.version);
 }
 
+bool inspect_indexed_icon(
+    const std::string&            path,
+    const addon::Integrity_index& index,
+    const addon::Package_source&  source,
+    addon::Contract_failure&      failure)
+{
+    const auto* entry = index.find(path);
+    if (!entry || entry->kind != addon::Resource_kind::ASSET) {
+        failure = {addon::reason::k_presentation_invalid, path + " is not an indexed asset"};
+        return false;
+    }
+    addon::Source_error error;
+    const auto bytes = source.read(path, addon::limits::k_max_icon_source_bytes, &error);
+    if (!bytes) {
+        failure.reason_code = error.kind == addon::Source_error_kind::TOO_LARGE
+            ? addon::reason::k_icon_too_large
+            : addon::reason::k_presentation_invalid;
+        failure.detail = error.detail;
+        return false;
+    }
+    if (!addon::inspect_icon(*bytes, &failure)) {
+        failure.detail = path + ": " + failure.detail;
+        return false;
+    }
+    return true;
+}
+
+bool validate_presentation(
+    const addon::Json_value&      payload,
+    const addon::Integrity_index& index,
+    const addon::Package_source&  source,
+    addon::Contract_failure&      failure)
+{
+    const auto record = addon::decode_presentation_record(payload, &failure);
+    if (!record || !inspect_indexed_icon(record->light_icon_path, index, source, failure)) {
+        return false;
+    }
+    return record->light_icon_path == record->dark_icon_path ||
+           inspect_indexed_icon(record->dark_icon_path, index, source, failure);
+}
+
 // A successful result carrying exactly the payload that was sent.
 bool echoed(const std::optional<addon::Host_outcome>& outcome, const addon::Json_value& payload)
 {
@@ -128,7 +176,7 @@ public:
         }
         m_report.pass("package.validates", package->bootstrap.package_id + " " + package->generation_digest_hex);
         m_initial_digest = package->generation_digest_hex;
-        check_capability_declarations(*package);
+        check_capability_declarations(*package, source);
         if (m_report.failed()) {
             return;
         }
@@ -168,59 +216,64 @@ public:
     }
 
 private:
-    void check_capability_declarations(const addon::Validated_package& package)
+    void check_capability_declarations(const addon::Validated_package& package, const addon::Package_source& source)
     {
         for (const addon::Capability_sidecar& sidecar : package.sidecars) {
-            const std::string name = pair_name(sidecar.pair());
+            const auto pair = sidecar.pair();
+            const auto name = pair_name(pair);
+            addon::Contract_failure failure;
+            const char* check;
+            bool valid;
+            if (pair == k_discovery || pair == k_preparation) {
+                check = "declaration.launcher_environment";
+                valid = addon::decode_launcher_discovery_declaration(sidecar.payload, &failure).has_value();
+            }
+            else
+            if (pair == k_presentation) {
+                check = "declaration.presentation";
+                valid = validate_presentation(sidecar.payload, package.index, source, failure);
+            }
+            else
             if (sidecar.capability_id == addon::k_launcher_approval_capability_id &&
                 sidecar.version == addon::k_launcher_approval_version)
             {
-                addon::Contract_failure failure;
-                const bool valid = addon::validate_launcher_approval_declaration(sidecar.payload, &failure);
-                m_report.verdict("declaration.launcher_approval", valid,
-                    valid ? name : name + ": " + failure.reason_code + ": " + failure.detail);
-                continue;
+                check = "declaration.launcher_approval";
+                valid = addon::validate_launcher_approval_declaration(sidecar.payload, &failure);
             }
+            else
             if (sidecar.capability_id == addon::k_managed_configuration_capability_id &&
                 (sidecar.version == addon::k_managed_configuration_version ||
                     sidecar.version == addon::k_managed_configuration_selector_version ||
                     sidecar.version == addon::k_managed_configuration_home_version))
             {
-                addon::Contract_failure failure;
-                const auto declaration = addon::decode_managed_configuration_declaration(
-                    sidecar.payload, &failure, sidecar.version);
-                m_report.verdict("declaration.managed_configuration", declaration.has_value(),
-                    declaration ? name : name + ": " + failure.reason_code + ": " + failure.detail);
-                continue;
+                check = "declaration.managed_configuration";
+                valid = addon::decode_managed_configuration_declaration(
+                    sidecar.payload, &failure, sidecar.version).has_value();
             }
+            else
             if (sidecar.capability_id == addon::k_delegated_model_selection_capability_id &&
                 sidecar.version == addon::k_delegated_model_selection_version)
             {
-                addon::Contract_failure failure;
-                const auto declaration = addon::decode_delegated_model_selection_declaration(sidecar.payload, &failure);
-                m_report.verdict("declaration.delegated_model_selection", declaration.has_value(),
-                    declaration ? name : name + ": " + failure.reason_code + ": " + failure.detail);
-                continue;
+                check = "declaration.delegated_model_selection";
+                valid = addon::decode_delegated_model_selection_declaration(sidecar.payload, &failure).has_value();
             }
+            else
             if (sidecar.capability_id != addon::k_structured_session_capability_id &&
                 sidecar.capability_id != addon::k_delegated_session_capability_id)
             {
                 m_report.skip("declaration.unassessed", name + ": no declaration decoder in this suite");
                 continue;
             }
-            // Assess only the current session declaration grammars.
+            else
             if (sidecar.version != addon::k_structured_session_version) {
                 m_report.skip("declaration.unassessed", name + ": unsupported declaration version");
                 continue;
             }
-            addon::Contract_failure failure;
-            if (!addon::decode_purposes_declaration(sidecar.payload, &failure)) {
-                m_report.fail("declaration.session_purposes",
-                    name + ": " + failure.reason_code + ": " + failure.detail);
-            }
             else {
-                m_report.pass("declaration.session_purposes", name);
+                check = "declaration.session_purposes";
+                valid = addon::decode_purposes_declaration(sidecar.payload, &failure).has_value();
             }
+            m_report.verdict(check, valid, valid ? name : name + ": " + failure.reason_code + ": " + failure.detail);
         }
     }
 

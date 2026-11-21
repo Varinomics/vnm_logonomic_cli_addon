@@ -1,8 +1,10 @@
 # coordination-delivery@1
 
-`coordination-delivery@1` is a static capability: the sidecar is the
-authority, and version 1 has no operation. It declares whether the package
-delivers Logonomic's coordination context to the CLI at startup and per turn.
+`coordination-delivery@1` declares whether the package delivers Logonomic's
+coordination context to the CLI at startup and per turn. Index its sidecar
+and advertise the pair in the adapter handshake. Version 1 has no operation.
+The desktop reads the admitted sidecar for a generation that can be
+activated, independently of whether it has started the adapter.
 `lifecycle_events.h` implements the codec
 (`decode_coordination_delivery_declaration`).
 

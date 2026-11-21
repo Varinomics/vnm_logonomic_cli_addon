@@ -5,13 +5,13 @@ endif()
 project(logonomic_cli_addon_filesystem_observer_tests LANGUAGES C CXX)
 
 # This optional component uses Qt; the ordinary SDK test project does not.
-if(NOT EXISTS "${VNM_FRAMEWORK_SOURCE_DIR}/cpp/filesystem_observation/CMakeLists.txt")
-    message(FATAL_ERROR "VNM_FRAMEWORK_SOURCE_DIR must name the selected framework source")
+if(NOT EXISTS "${VNM_FILESYSTEM_OBSERVATION_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "VNM_FILESYSTEM_OBSERVATION_SOURCE_DIR must name the selected filesystem observation source")
 endif()
 set(LOGONOMIC_CLI_ADDON_SDK_BUILD_TESTS OFF)
 set(VNM_FILESYSTEM_OBSERVATION_BUILD_TESTS OFF)
 set(VNM_FILESYSTEM_OBSERVATION_ENABLE_TEST_HOOKS OFF)
-add_subdirectory("${VNM_FRAMEWORK_SOURCE_DIR}/cpp/filesystem_observation" observation)
+add_subdirectory("${VNM_FILESYSTEM_OBSERVATION_SOURCE_DIR}" observation)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../.." sdk)
 logonomic_cli_addon_add_filesystem_observer()
 

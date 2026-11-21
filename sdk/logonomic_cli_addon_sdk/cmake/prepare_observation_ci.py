@@ -28,7 +28,7 @@ QT_KITS = {
     "macos-arm64": {"clang": ("mac", "clang_64")},
 }
 DEFAULT_TOOLCHAINS = {"windows-x86_64": "msvc", "linux-x86_64": "gcc", "macos-arm64": "clang"}
-OWNED_DEPENDENCIES = ("vnm_framework", "vnm_qt_dispatch", "vnm_cmake")
+OWNED_DEPENDENCIES = ("vnm_filesystem_observation", "vnm_qt_dispatch", "vnm_cmake")
 # Development follows aqtinstall's master: its upstream metadata fix is needed for
 # Qt's per-architecture Windows repositories.
 DEVELOPMENT_AQT = "git+https://github.com/miurahr/aqtinstall.git@master"
@@ -209,7 +209,7 @@ def main(provider, arguments=None):
     prefix, qt_notices = prepare_qt(root, args.platform, toolchain, args.aqt_source)
     cmake_args = [
         f"-DCMAKE_PREFIX_PATH={prefix.as_posix()}",
-        f"-D{prefix_name}_FRAMEWORK_SOURCE={sources['vnm_framework']['path'].as_posix()}",
+        f"-D{prefix_name}_OBSERVATION_SOURCE={sources['vnm_filesystem_observation']['path'].as_posix()}",
         f"-DFETCHCONTENT_SOURCE_DIR_VNM_QT_DISPATCH={sources['vnm_qt_dispatch']['path'].as_posix()}",
         f"-DFETCHCONTENT_SOURCE_DIR_VNM_CMAKE={sources['vnm_cmake']['path'].as_posix()}",
         f"-D{prefix_name}_QTBASE_SOURCE={qt_notices.as_posix()}",

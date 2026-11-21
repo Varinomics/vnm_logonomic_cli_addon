@@ -1,17 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND CMAKE_GENERATOR STREQUAL "FASTBuild")
-    # project() already generates graphs for its compiler checks. Keep the
-    # standalone SDK and its try_compile projects clear of the caller's environment.
-    set(CMAKE_FASTBUILD_CAPTURE_SYSTEM_ENV OFF CACHE BOOL "Capture configure-time environment" FORCE)
-    list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_FASTBUILD_CAPTURE_SYSTEM_ENV)
-    list(REMOVE_DUPLICATES CMAKE_TRY_COMPILE_PLATFORM_VARIABLES)
-    set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES "${CMAKE_TRY_COMPILE_PLATFORM_VARIABLES}"
-        CACHE STRING "FASTBuild settings inherited by compiler checks" FORCE)
-    if(POLICY CMP0141)
-        cmake_policy(SET CMP0141 NEW)
-        set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
-    endif()
-endif()
+include(cmake/standalone_toolchain.cmake NO_POLICY_SCOPE)
 project(logonomic_cli_addon_sdk VERSION 1.0.0 LANGUAGES CXX)
 
 # The SDK is a complete top-level project and is also consumed in-tree through
@@ -20,7 +8,7 @@ project(logonomic_cli_addon_sdk VERSION 1.0.0 LANGUAGES CXX)
 # labelling applies.
 option(LOGONOMIC_CLI_ADDON_SDK_BUILD_TESTS "Build the SDK's own test executable" ON)
 
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+if(PROJECT_IS_TOP_LEVEL OR CMAKE_PROJECT_NAME STREQUAL "vnm_logonomic_cli_addon")
     set(_logonomic_cli_addon_sdk_top_level ON)
 else()
     set(_logonomic_cli_addon_sdk_top_level OFF)
@@ -271,7 +259,7 @@ if(LOGONOMIC_CLI_ADDON_SDK_BUILD_TESTS)
         enable_testing()
         if(CMAKE_GENERATOR STREQUAL "FASTBuild")
             add_test(NAME logonomic_cli_addon_sdk_fastbuild_environment
-                COMMAND "${CMAKE_COMMAND}" "-DSDK_BUILD_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}"
+                COMMAND "${CMAKE_COMMAND}" "-DSDK_BUILD_DIRECTORY=${CMAKE_BINARY_DIR}"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/fastbuild_environment.cmake")
         endif()
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -409,6 +397,9 @@ if(LOGONOMIC_CLI_ADDON_SDK_BUILD_TESTS)
             add_test(NAME logonomic_cli_addon_fixture_conformance_tests
                 COMMAND "${CMAKE_COMMAND}"
                     "-DCONFORMANCE_TOOL=$<TARGET_FILE:logonomic_cli_addon_conformance>"
+                    "-DVALIDATE_TOOL=$<TARGET_FILE:logonomic_cli_addon_validate>"
+                    "-DINDEX_TOOL=$<TARGET_FILE:logonomic_cli_addon_index>"
+                    "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/fixture_conformance_tests"
                     "-DFIXTURE_PACKAGES=${_logonomic_cli_addon_sdk_fixture_dir}"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixture_conformance_tests.cmake")
             set_tests_properties(logonomic_cli_addon_fixture_conformance_tests PROPERTIES TIMEOUT 60)

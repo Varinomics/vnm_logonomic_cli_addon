@@ -6,26 +6,7 @@ foreach(required IN ITEMS CONFORMANCE_TOOL VALIDATE_TOOL INDEX_TOOL FIXTURE_PACK
     endif()
 endforeach()
 
-function(check_package name directory expected check)
-    execute_process(COMMAND "${INDEX_TOOL}" "${directory}"
-        --third-party assets/mark.svg notices/mark-license.txt provenance/mark.json
-        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
-    if(NOT result EQUAL 0)
-        message(FATAL_ERROR "${name}: indexing failed: ${output}${error}")
-    endif()
-    execute_process(COMMAND "${VALIDATE_TOOL}" "${directory}"
-        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
-    if(NOT result EQUAL 0)
-        message(FATAL_ERROR "${name}: production validator rejected opaque payload: ${output}${error}")
-    endif()
-    execute_process(COMMAND "${CONFORMANCE_TOOL}" "${directory}"
-        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
-    file(WRITE "${TEST_ROOT}/${name}.log" "${output}${error}")
-    if(NOT result EQUAL expected OR NOT output MATCHES "${check}")
-        message(FATAL_ERROR "${name}: expected exit ${expected} and ${check}, got ${result}: ${output}${error}")
-    endif()
-    message(STATUS "${name}: validator accepted; conformance exit ${result}, ${check}")
-endfunction()
+include("${CMAKE_CURRENT_LIST_DIR}/check_conformance_package.cmake")
 
 function(session_case name version family payload expected)
     set(directory "${TEST_ROOT}/${name}")

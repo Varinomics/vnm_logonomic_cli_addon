@@ -2,13 +2,13 @@
 
 `Filesystem_lifecycle_observer` is an opt-in implementation component for
 providers using `lifecycle-events@2`, `lifecycle-correlation-lifetime@1` and the
-maintained `vnm_framework` filesystem observation service. Grok, Qwen and Kimi
+maintained `vnm_filesystem_observation` service. Grok, Qwen and Kimi
 share this driver. Their native hook admission, path discovery, parsers and
 terminal-evidence rules remain provider code.
 
 ## Build and ownership
 
-Select the framework service before adding the component:
+Select the observer service before adding the component:
 
 ```cmake
 # The provider's maintained dependency selection defines this target:
@@ -19,7 +19,7 @@ target_link_libraries(provider PUBLIC
 ```
 
 The helper creates one static target and can be called by several providers in
-an embedded build. It links the selected SDK and framework targets; it performs
+an embedded build. It links the selected SDK and observer targets; it performs
 no acquisition and defines no provider cache settings. Including the SDK does
 not create this target, find Qt or link Qt to `logonomic_cli_addon_sdk::sdk`.
 
@@ -121,6 +121,6 @@ ownership to another correlation. The component uses the SDK request codecs and
 does not relax the host's correlation, page-size or final-cursor contracts.
 
 The provider observer tests exercise this shared implementation with the real
-framework service: authenticated native evidence, missing ancestors, read
+observer service: authenticated native evidence, missing ancestors, read
 recovery, independent continuations, retirement, final drain and saturation.
 The component adds no private polling loop or alternative filesystem backend.

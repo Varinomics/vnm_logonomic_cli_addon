@@ -19,6 +19,9 @@ Optional [usage-session@1](usage_session_1.md) describes native session aliases
 and completed-turn coverage through a separate bounded operation. It does not
 change this request, record or cache representation.
 
+With an accepted cache baseline, [usage-incremental@1](usage_incremental_1.md)
+can report unchanged history or page through changed observations.
+
 ## Scan pages
 
 `scan` carries the same frozen launcher/profile/account context as probe

@@ -3,7 +3,7 @@
 This optional capability authorizes a repository-only correction to an accepted
 usage record. Its probe declaration is an empty object. `scan` uses the unchanged
 `usage-scan@3` request and page grammars. `incremental` uses the unchanged
-`usage-incremental@1` request and result grammars. Both require live
+[usage-incremental@1](usage_incremental_1.md) request and result grammars. Both require live
 `usage-scan@3`; `incremental` additionally requires live `usage-incremental@1`.
 Profile selection, account acknowledgement, candidate sealing, continuation,
 cancellation and atomic cache/history publication retain those contracts.

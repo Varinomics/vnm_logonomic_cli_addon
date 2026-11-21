@@ -11,12 +11,10 @@ selection, reset refusal of retained input, account binding, immutable sealing,
 reserved paths and corruption. These are protocol/storage gates, not native
 model qualification or proof of a production host's index publication.
 
-The conformance suite proves adapter and package behaviour against the
-contracts in this directory from the outside: it validates the package
-directory, starts the adapter exactly as a host does, and observes only what
-crosses the process boundary. A pass proves contract behaviour. Integration
-with a host is a separate claim, made only when the same packaged fixture
-traverses that host's own registry, broker and custody.
+The conformance suite validates the package directory, checks supported
+declarations and starts the adapter under the SDK host simulator. Each
+`PASS` identifies the contract check that ran. Desktop integration also
+requires exercising the package through the desktop registry, broker and custody.
 
 ## Provider test support
 
@@ -41,14 +39,17 @@ code is 1 when any check failed, 0 otherwise. `SKIP` identifies declaration
 payloads the suite does not assess, and checks that probe
 `conformance-probe@1` or `profile-storage@1` when those capabilities are not live.
 
-`structured-session@3` and `delegated-session@3` declarations are assessed
-through `decode_purposes_declaration`, including their frozen-environment grammar, and
-`managed-configuration` versions 1, 2 and 3, through the managed-configuration
-declaration decoder. Malformed known declarations fail before the adapter is
-started. Other IDs and future versions are explicitly unassessed, not rejected
-or interpreted using an older grammar. The production package validator still treats capability payloads as opaque.
-This is not exhaustive capability validation, session execution qualification,
-or a check of host-dependent admission prerequisites.
+The package validator treats sidecar payloads as opaque. Conformance assesses
+each supported declaration before starting the adapter. A malformed declaration
+fails its own check and stops the run after the other declarations have been
+assessed. Unassessed ID/version pairs receive `SKIP declaration.unassessed`.
+
+For a launcher package, the suite checks the environment declarations and
+reads each distinct light or dark icon from the package. It checks PNG
+structure or the SVG subset and the applicable size and aspect bounds. The
+desktop additionally decodes pixels and rasterizes the icon. To check what
+the launcher discovers, recognizes and prepares, invoke those operations with
+representative inputs and inspect the results in a [simulator transcript](#scripts).
 
 The suite runs the simple probes in one adapter session and gives each
 destabilizing check a session of its own, so that a crash or hang is
@@ -60,6 +61,10 @@ every later check that needs a session reports that failure.
 | Check | Proves |
 |---|---|
 | `package.validates` | the directory passes the package contract; prints the package ID and generation digest |
+| `declaration.launcher_environment` | `launcher-discovery@1` and `launch-preparation@3` each declare valid, distinct, non-reserved environment names within the host's limit |
+| `declaration.presentation` | `presentation@1` has a valid display name, icon paths and optional accent. Both icon references resolve to indexed assets whose bytes pass the SDK icon inspection |
+| `declaration.launcher_approval` | `launcher-approval@1` declares an empty payload object |
+| `declaration.delegated_model_selection` | `delegated-model-selection@1` declares model and reasoning effort as booleans with at least one enabled |
 | `declaration.session_purposes` | each known structured/delegated session declaration passes its existing versioned purposes/environment codec; failures name the pair and codec reason |
 | `declaration.unassessed` | `SKIP`: this declaration ID/version is outside the suite's declaration decoder coverage |
 | `handshake.completes` | `hello` and `capabilities` arrive in order within the hello deadline with identity, generation and limits accepted |

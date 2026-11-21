@@ -1,17 +1,22 @@
 # Logonomic CLI add-on SDK
 
-The SDK is the contract between Logonomic and its CLI add-on packages, and the
-tooling that proves a package honours it. Its core is a self-contained C++20 library
-with no dependency beyond the standard library and the platform: no Qt, no
-Logonomic private headers, no third-party code. A package author needs only
-this directory; Logonomic links the same library so that the host and every
-adapter validate, frame and digest with one implementation.
+Use this SDK to connect a command-line tool to Logonomic. Start with the
+[DeskTool launcher](examples/desktool/README.md) to build a native adapter,
+exercise discovery and launch preparation, and try the package in a separate
+desktop profile. To change a shipped integration, follow the
+[provider contribution example](docs/provider_contribution.md).
 
-Providers that already use the maintained framework filesystem service can opt
+The C++20 core builds with the standard library and platform facilities,
+independently of Qt and the desktop sources. It includes npm-generated Windows
+launcher templates and their ISC copyright and permission notice in
+[npm_node_shim.cpp](src/npm_node_shim.cpp). Preserve that notice when
+redistributing copies of that material.
+
+Providers that already use the maintained filesystem observation service can opt
 into the separate [filesystem lifecycle observer](docs/filesystem_lifecycle_observer.md)
 target. It shares correlation, cursor, queue and watch ownership while leaving
 native discovery and decoding in each provider. The core SDK target remains
-independent of Qt and the framework service.
+independent of Qt and the observer.
 
 ## What it contains
 
@@ -31,7 +36,7 @@ existing lifecycle writer while preserving human captions and hook envelopes.
 
 | Part | Location | Purpose |
 |---|---|---|
-| Normative documents | `docs/` | the package, process and wire contracts; `profile-storage@1`, `accounts@2`, [auth-status@2](docs/auth_status_2.md), [current-account@1](docs/current_account_1.md), [account-refresh@1](docs/account_refresh_1.md), [quota@3](docs/quota_3.md) with [quota@2](docs/quota_2.md) compatibility, optional [quota-failure@1](docs/quota_failure_1.md), [usage-scan@3](docs/usage_scan_3.md) and optional [usage-session@1](docs/usage_session_1.md), plus the versionless [stored accounting codec](docs/stored_usage_accounting.md); the presentation, launcher-discovery, launch-preparation, interactive-initial-prompt and managed-assets contracts; the structured-session, delegated-session, [interactive-resume](docs/interactive_resume_2.md), lifecycle-events, coordination-delivery and helper-ingress contracts; the SVG subset annex; every numeric bound; and the conformance suite |
+| Normative documents | `docs/` | the package, process and wire contracts; `profile-storage@1`, `accounts@2`, [auth-status@2](docs/auth_status_2.md), [current-account@1](docs/current_account_1.md), [account-refresh@1](docs/account_refresh_1.md), [quota@3](docs/quota_3.md) with [quota@2](docs/quota_2.md) compatibility, optional [quota-failure@1](docs/quota_failure_1.md), [usage-scan@3](docs/usage_scan_3.md), [usage-incremental@1](docs/usage_incremental_1.md) and optional [usage-session@1](docs/usage_session_1.md), plus the versionless [stored accounting codec](docs/stored_usage_accounting.md); the presentation, launcher-discovery, launch-preparation, interactive-initial-prompt and managed-assets contracts; the structured-session, delegated-session, [interactive-resume](docs/interactive_resume_2.md), lifecycle-events, coordination-delivery and helper-ingress contracts; the SVG subset annex; every numeric bound; and the conformance suite |
 | Library | `include/logonomic_cli_addon/`, `src/` | identifiers, bounded JSON, SHA-256, bootstrap/index/sidecar parsing, package validation, generation digest, newline framing, protocol messages, capability codecs, process proposals, derived provider identity, the helper client, adapter runtime, host simulator, transcripts |
 | `logonomic_cli_addon_validate` | `tools/` | validates one package directory and prints its generation digest |
 | `logonomic_cli_addon_index` | `tools/` | writes a package's `package.files.json` |
@@ -41,11 +46,11 @@ existing lifecycle writer while preserving human captions and hook envelopes.
 | Fixture adapter and packages | `fixtures/` | the provider-unknown fixture adapter, the fixture package roster, and the transcript scripts shared with Logonomic's tests |
 | Tests | `tests/` | the SDK's own test executable and scripts, including the embedded-build comparison with its embedding host and fixture package project |
 
-## Building
+## Building the SDK tools
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build --parallel
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
@@ -58,6 +63,12 @@ library target is `logonomic_cli_addon_sdk` with the alias
 
 Source consumers also receive these package recipe functions:
 
+- `logonomic_cli_addon_add_package(target package_id out_directory ADAPTER
+  target ...)` assembles an adapter, its declared sidecars and package files,
+  and writes their integrity index. The [DeskTool project](examples/desktool/CMakeLists.txt)
+  shows the source layout and invocation. The standard Linux recipe uses
+  Python 3.11+, patchelf, binutils and Debian or Ubuntu package metadata for
+  bundled compiler runtimes. See [Linux native runtime deployment](docs/package_contract.md#linux-native-runtime-deployment).
 - `logonomic_cli_addon_package_platform(out_platform)` requires CMake 3.25 when
   invoked and proves a Windows/Linux x86_64 or macOS arm64 compiler target
   using compile-only probes, including each generated configuration.
@@ -90,7 +101,9 @@ embeddable package needs are specified in `docs/package_contract.md`,
 Artifact export is not atomic. A failed export may leave a partial directory;
 choose a fresh destination or manually remove only the identified disposable
 export before retrying. Never use that cleanup to remove an installed generation.
-The application's package ingestion owns atomic installation and updates.
+Stage the complete directory outside the active roots before replacing an
+installed package. Selection changes on desktop restart. See the
+[installation and update guide](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
 Provider recipes select their payload assembly and third-party index
 declarations; the shared recipe supplies the native runtime stages.
 
@@ -123,18 +136,39 @@ staging before sealing their inventories or signing their own binaries.
 supports an optional capability-owned stdin EOF request while retaining
 inspection through native process exit.
 
-An adapter is a direct executable that speaks the newline-framed JSON protocol
-of `docs/core_protocol.md` on its standard streams. `adapter_runtime.h`
-implements that protocol for C++ adapters: it answers the host hello,
-dispatches `invoke` to a handler on a thread per request, routes `cancel`,
-bounds progress, guarantees exactly one terminal result, and honours
-`shutdown` and end of file. `fixtures/unknown_fixture_adapter.cpp` is a
-complete adapter built on it.
+Choose C++20 or another language that can deliver a directly executable
+adapter for the target platform. The language-neutral contracts define the
+[package layout](docs/package_contract.md), [process environment](docs/process_contract.md)
+and [bounded UTF-8 JSON protocol](docs/core_protocol.md). Reserve stdout for
+LF-terminated frames and send diagnostics to stderr.
 
-The package that carries the adapter is described in
-`docs/package_contract.md`: a bootstrap manifest, an integrity index written
-by `logonomic_cli_addon_index`, one sidecar per declared capability version,
-and the adapter, helper, asset, notice and provenance files the index lists.
+A valid package may declare zero capabilities. Each offered version adds an
+indexed sidecar. The generation digest identifies the package bytes, and the
+host supplies a nonce for the running generation. Install adapters from a
+source you trust to run native code with your account's access.
+
+In C++, link `logonomic_cli_addon_sdk::sdk`, list the implemented pairs in
+`Adapter_runtime_options::capabilities`, and dispatch by capability, version
+and operation. Each handler receives an `Invocation_context`. Handlers may run
+concurrently. Check cancellation during long operations and return one terminal
+result. Use the capability codecs for the request and result. The runtime's
+`write_raw` method and the fault-injection adapters under `fixtures/` are test
+facilities. See the [runtime API](include/logonomic_cli_addon/adapter_runtime.h).
+
+For a discoverable launcher with its own name and icon, declare and advertise
+[launcher-discovery@1](docs/launcher_discovery_1.md) (`discover`, `recognize`),
+[launch-preparation@3](docs/launch_preparation_3.md) (`prepare`) and
+[presentation@1](docs/presentation_1.md). Presentation has no operation.
+Both theme variants may name the same indexed asset. Use a reverse-domain
+package ID in a namespace you control for distribution.
+
+Check `cli-addon-core-compatibility.json` beside the target desktop executable
+for its supported package formats, protocol generations and exact capability
+versions. For an ordinary live pair, the indexed sidecar, adapter handshake
+and desktop adoption must agree. Capability-specific prerequisites still
+apply. A new product action needs a desktop consumer. Consult the
+[authority rules](docs/package_contract.md#package-layout-and-authority)
+and [protocol and package limits](docs/limits.md).
 
 ## Writing a helper
 
@@ -154,11 +188,11 @@ and it links only this library.
 build/logonomic_cli_addon_conformance /path/to/package
 ```
 
-runs every check of `docs/conformance.md` and prints one `PASS`, `FAIL` or
-`SKIP` line per check. A package is conforming when no check fails. The host
-simulator behind the suite is the same code path Logonomic's own tests use to
-compare their observations with the SDK's, through the transcript format
-described there.
+prints one `PASS`, `FAIL` or `SKIP` per check. Read the skipped checks to
+see which behavior still needs package-specific coverage. Drive the launcher
+through the simulator and check its actual candidate, recognition and prepared
+invocation. Exercise the installed command in the desktop profile for the
+end-to-end result. See the [checks and transcript format](docs/conformance.md).
 
 ## Proving an embedded build
 

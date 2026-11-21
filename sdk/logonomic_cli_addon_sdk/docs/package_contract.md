@@ -100,16 +100,18 @@ capability unavailable, with a diagnostic. An adapter-only capability has no
 sidecar authority and is ignored. Unknown sidecars are retained as immutable
 package bytes and ignored by every facility that does not understand them.
 
-Static declarations have capability-owned authority:
-[`coordination-delivery@1`](coordination_delivery_1.md) uses its admitted
-sidecar for a generation that can be activated;
+Authors advertise [`coordination-delivery@1`](coordination_delivery_1.md) in
+the handshake. The host reads its admitted sidecar for an activatable generation.
 [`account-profile-managed-configuration@1`](account_profile_managed_configuration_1.md)
 is excluded from the runtime handshake and requires its `accounts@2` and exact
 managed-configuration dependencies to be live. These exceptions do not make
 an unavailable adapter operation live.
 
-Package files are read-only to the host. Atomic directory replacement is an
-installer obligation; the host scans packages and never modifies them.
+The installer owns whole-directory replacement. The desktop scans complete
+packages at startup and runs a custodied copy of the selected generation.
+Stage updates and keep backups outside all scanned roots. Restart to select
+an installation, update or removal. See the [operator's installation and
+replacement instructions](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
 
 ## Bootstrap manifest `logonomic-cli-addon.json`
 
@@ -392,7 +394,7 @@ does not replace package validation or conformance.
 
 `cmake/prepare_observation_ci.py` exposes `main(provider, arguments=None)` for a
 provider's thin CI callback. The provider name selects its dependency-cache
-directory and uppercase CMake input prefix, for example `GROK_FRAMEWORK_SOURCE`,
+directory and uppercase CMake input prefix, for example `GROK_OBSERVATION_SOURCE`,
 `GROK_QTBASE_SOURCE`, `GROK_RUNTIME_NOTICES_DIRECTORY` and
 `GROK_LINUX_RUNTIME_MATERIAL`. The callback accepts the native driver's
 `--platform`, `--toolchain`, `--toolchain-root`, `--aqt-source`, `--revisions`,
@@ -440,7 +442,7 @@ addition and rename. It retains the provider's recipe-test opt-in and runs in
 the provider's authorized build lane.
 
 Providers with additional selected inputs pass repeated
-`--cmake-definition=NAME=VALUE` arguments, for example their framework source,
+`--cmake-definition=NAME=VALUE` arguments, for example their filesystem observer source,
 Qt notice source and exact runtime acquisition material. These definitions reach
 the isolated configure unchanged so its disconnected build uses the same owned
 dependencies and supplier evidence as the invoking package build.
