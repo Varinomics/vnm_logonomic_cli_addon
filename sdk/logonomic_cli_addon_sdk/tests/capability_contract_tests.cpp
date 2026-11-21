@@ -603,7 +603,7 @@ bool test_assets_import_and_storage_contracts()
     while (deep_base.native().size() < 260) {
         deep_base /= "profile-storage";
     }
-    for (const auto& location : {nested_base, deep_base}) {
+    for (const auto& location : {nested_base, deep_base, deep_base / "new-profile"}) {
         const auto scope_path = location / package_id / "default";
         const auto spelling   = addon::path_to_utf8(scope_path);
         SDK_CHECK(addon::expected_profile_storage_root(location, package_id, &error) == spelling &&

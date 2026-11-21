@@ -22,6 +22,26 @@ namespace fs = std::filesystem;
 
 namespace {
 
+fs::path canonical_storage_base(const fs::path& absolute_base, std::error_code& error)
+{
+#ifdef _WIN32
+    // weakly_canonical walks a missing UNC path through incomplete share names
+    // and can lose the extended prefix when it opens a long existing ancestor.
+    for (auto ancestor = absolute_base; ancestor.has_relative_path(); ancestor = ancestor.parent_path()) {
+        const auto canonical = fs::canonical(native_io_path(ancestor), error);
+        if (!error) {
+            return ancestor == absolute_base
+                ? canonical
+                : (canonical / absolute_base.lexically_relative(ancestor)).lexically_normal();
+        }
+        if (error != std::errc::no_such_file_or_directory) {
+            break;
+        }
+    }
+#endif
+    return fs::weakly_canonical(absolute_base, error);
+}
+
 bool is_link_like(const fs::path& path, const fs::file_status& status)
 {
     if (fs::is_symlink(status)) {
@@ -78,7 +98,7 @@ std::optional<std::string> expected_profile_storage_root(
     const fs::path absolute_base  = fs::absolute(profile_storage_root, error);
     const fs::path canonical_base = error
         ? fs::path{}
-        : fs::weakly_canonical(native_io_path(absolute_base), error);
+        : canonical_storage_base(absolute_base, error);
     if (error) {
         if (out_error != nullptr) {
             *out_error = "cannot resolve " + path_to_utf8(profile_storage_root) + ": " + error.message();
