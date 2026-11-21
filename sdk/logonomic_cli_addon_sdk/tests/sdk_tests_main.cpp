@@ -138,7 +138,7 @@ int main(int argc, char** argv)
         {"macos_adapter_executable_format",         sdk_tests::test_macos_adapter_executable_format},
         {"simulator_windows_native_limits",         sdk_tests::test_simulator_windows_native_limits},
 
-        // The five capability documents and SVG subset annex are the oracles.
+        // Provider capabilities and presentation.
         // Their numeric bounds remain pending explicit owner ratification.
         {"accounts_contracts",                      sdk_tests::test_accounts_contracts},
         {"account_pet_contracts",                   sdk_tests::test_account_pet_contracts},
@@ -159,9 +159,7 @@ int main(int argc, char** argv)
         {"presentation_media_contracts",            sdk_tests::test_presentation_media_contracts},
         {"assets_import_and_storage_contracts",     sdk_tests::test_assets_import_and_storage_contracts},
 
-        // Session, lifecycle, ingress and helper-client contracts; their six
-        // documents are the oracles, and the scripted wrapper is the test
-        // executable itself.
+        // The helper-client contract uses this executable as its scripted wrapper.
         {"session_contracts",                       sdk_tests::test_session_contracts},
         {"delegated_model_selection_contracts",      sdk_tests::test_delegated_model_selection_contracts},
         {"resume_inspection_contracts",             sdk_tests::test_resume_inspection_contracts},

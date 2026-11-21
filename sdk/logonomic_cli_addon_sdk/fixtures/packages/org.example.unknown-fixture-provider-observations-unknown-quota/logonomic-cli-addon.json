@@ -17,7 +17,7 @@
       "--auth-version",
       "2",
       "--quota-version",
-      "4",
+      "65535",
       "--usage-version",
       "3",
       "--with-accounts"

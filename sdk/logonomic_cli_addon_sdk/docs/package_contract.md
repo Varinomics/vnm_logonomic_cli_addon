@@ -447,6 +447,21 @@ Qt notice source and exact runtime acquisition material. These definitions reach
 the isolated configure unchanged so its disconnected build uses the same owned
 dependencies and supplier evidence as the invoking package build.
 
+## Exporting a package
+
+A standalone project using `logonomic_cli_addon_install_package` exports its
+assembled directory with `cmake --install <build> --prefix <export-root>`.
+The destination is `<export-root>/<package-id>`. It must be absent when the
+copy starts. An existing file, directory or dangling symlink there fails the
+export. Source permissions are preserved. POSIX staging can prepend `DESTDIR`
+to the install prefix. Combining a nonempty `DESTDIR` with a drive-letter
+prefix fails.
+
+A failed copy can leave a partial export. Retry in a fresh destination or
+remove only that disposable partial export first. For an installed generation,
+stage the complete replacement outside the active roots before following the
+[installation and update instructions](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
+
 ## Embedded build
 
 A package project builds as a top-level CMake project of its own, and as a

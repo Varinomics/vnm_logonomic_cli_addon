@@ -6,7 +6,7 @@ Start with the [DeskTool launcher](sdk/logonomic_cli_addon_sdk/examples/desktool
 
 ## Build
 
-The SDK library requires C++20 and CMake 3.21 or newer. The commands below also build and run the SDK tests using Ninja. On Windows and Linux the package-recipe tests require CMake 3.25 or newer. Install Python 3.9 or newer on Windows and macOS. On Linux use Python 3.11 or newer, patchelf, binutils and the Debian or Ubuntu package metadata and notices for the runtime libraries being packaged.
+The SDK library requires C++20 and CMake 3.21 or newer. The commands below also build and run the SDK tests using Ninja. On Windows and Linux the package-recipe tests require CMake 3.25 or newer. Install Python 3.9 or newer on Windows and macOS. For Linux package tests, install the [Linux runtime packaging prerequisites](sdk/logonomic_cli_addon_sdk/docs/package_contract.md#linux-native-runtime-deployment).
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -20,8 +20,6 @@ Package authors implement adapter handlers with the SDK. Within the production h
 
 ## Match a desktop release
 
-The desktop's `cli-addon-core-compatibility.json` lists the capability pairs it adopts. Release source tuples identify the add-on system checkout under `vnm_logonomic_cli_addon`. Use that exact checkout for its SDK documentation and tools.
+Open `cli-addon-core-compatibility.json` beside the Logonomic executable to see which protocol and capability versions that release supports.
 
-The Windows 1.0.6 portable predates the separate source repository. Its source revision `9aea4c8bae16d29ccca8f195071d7bd55676596c` contains SDK tree `ba826f6d17ae65231c725042eccdea0e0c87091d`. The [matching SDK snapshot](https://github.com/Varinomics/vnm_logonomic_cli_addon/tree/4be45c07c1f0547ab9d0b6f4e3f497da17e5f84e/sdk/logonomic_cli_addon_sdk) preserves that tree, including its fixtures and documentation.
-
-This repository is private. Access to its source and the maintained providers requires repository access. Third-party notices accompany their respective sources.
+Maintainers with the retained release evidence can reproduce its SDK tools and documentation from the `vnm_logonomic_cli_addon` revision in `release-source-tuple.json`. For releases that built the SDK in the desktop repository, use `sdk/logonomic_cli_addon_sdk` at the recorded application revision.

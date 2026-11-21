@@ -1,6 +1,6 @@
 {
   "bootstrap_version": 1,
-  "package_id": "org.example.desktool",
+  "package_id": "@desktool_package_id@",
   "release_version": "@PROJECT_VERSION@",
   "platforms": ["@desktool_platform@"],
   "adapter": {

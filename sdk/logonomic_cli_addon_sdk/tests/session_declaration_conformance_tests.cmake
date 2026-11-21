@@ -50,7 +50,7 @@ foreach(family IN ITEMS structured-session delegated-session)
         "{\"purposes\":[\"read_only_review\"],\"environment_names\":42}" 1)
     session_case("${family}-3-valid-environment" 3 "${family}"
         "{\"purposes\":[\"read_only_review\"],\"environment_names\":[\"FIXTURE_SESSION_INPUT\"]}" 0)
-    session_case("${family}-4-opaque" 4 "${family}" "{\"future_contract\":42}" 0)
+    session_case("${family}-opaque" 65535 "${family}" "{\"future_contract\":true}" 0)
 endforeach()
 
 set(directory "${TEST_ROOT}/unknown-id-opaque")

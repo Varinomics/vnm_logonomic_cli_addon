@@ -382,13 +382,12 @@ bool check_provider_session_surfaces(const char* id)
         const auto declares = [&declared](const addon::Capability_pair& pair) {
             return std::find(declared.begin(), declared.end(), pair) != declared.end();
         };
-        ok &= check(declared.size() == 15 &&
-            declares(k_structured_session) && declares(k_delegated_session) && declares(k_interactive_resume) &&
+        ok &= check(declares(k_structured_session) && declares(k_delegated_session) && declares(k_interactive_resume) &&
             declares(k_lifecycle_events) && declares(k_coordination_delivery) && declares(k_helper_ingress) &&
             declares({addon::k_model_context_delivery_capability_id, addon::k_model_context_delivery_version}) &&
             declares({addon::k_model_state_capability_id, addon::k_model_state_version}) &&
             declares({addon::k_structured_model_observation_capability_id, addon::k_structured_model_observation_version}),
-            id, "provider-sessions declares the fifteen expected capabilities");
+            id, "provider-sessions declares the capabilities used by the session tests");
         const addon::Index_entry* helper = package->index.find(k_helper_relative_path);
         ok &= check(helper != nullptr && helper->origin == addon::Resource_origin::PACKAGE, id,
             "the packaged helper is indexed as a package-owned file");

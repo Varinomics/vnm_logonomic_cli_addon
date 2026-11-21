@@ -15,7 +15,7 @@
       "--behavior",
       "provider-observations",
       "--auth-version",
-      "3",
+      "65535",
       "--quota-version",
       "2",
       "--usage-version",

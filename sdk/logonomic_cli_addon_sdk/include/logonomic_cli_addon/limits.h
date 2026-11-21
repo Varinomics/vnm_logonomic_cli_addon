@@ -5,12 +5,7 @@
 #include <limits>
 
 /**
- * @brief Every numeric bound of the package, custody, protocol, process and
- * capability contracts. This header is the single source of the values the
- * SDK, conformance suite and host enforce; docs/limits.md mirrors them with
- * their rationale. These documented engineering defaults are reviewed for
- * correctness, compatibility and resource effects when changed. The host
- * links these constants rather than restating them.
+ * @brief Shared package, custody, protocol and capability limits used by the SDK and host.
  */
 namespace logonomic::cli_addon::limits {
 

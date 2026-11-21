@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.21)
 include(cmake/standalone_toolchain.cmake NO_POLICY_SCOPE)
-project(logonomic_cli_addon_sdk VERSION 1.0.0 LANGUAGES CXX)
+set(sdk_version_header "${CMAKE_CURRENT_SOURCE_DIR}/include/logonomic_cli_addon/version.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_version_header}")
+file(READ "${sdk_version_header}" sdk_version_source)
+foreach(part IN ITEMS major minor patch)
+    if(NOT sdk_version_source MATCHES "(^|\n)inline constexpr int k_sdk_version_${part} *= *(0|[1-9][0-9]*);[ \t\r]*(\n|$)")
+        message(FATAL_ERROR "Expected a decimal SDK ${part} version in ${sdk_version_header}")
+    endif()
+    set(sdk_version_${part} "${CMAKE_MATCH_2}")
+endforeach()
+project(logonomic_cli_addon_sdk VERSION "${sdk_version_major}.${sdk_version_minor}.${sdk_version_patch}" LANGUAGES CXX)
 
 # The SDK is a complete top-level project and is also consumed in-tree through
 # add_subdirectory. Standalone, it registers its tests itself; in-tree, the
@@ -22,9 +31,6 @@ endif()
 
 find_package(Threads REQUIRED)
 
-# Warnings are defects in every SDK target. MSVC gets the equivalent warning
-# level without /WX because no MSVC build is available where the SDK is
-# developed; the MinGW syntax check covers the Windows translation units.
 function(logonomic_cli_addon_sdk_configure_target target)
     target_compile_features(${target} PUBLIC cxx_std_20)
     if(MSVC)
@@ -167,77 +173,15 @@ include(fixtures/packages.cmake)
 include(cmake/package.cmake)
 include(cmake/filesystem_lifecycle_observer.cmake)
 
-# The macOS group list selects the adopted native SDK contracts.
-# Other platforms register the paced lifetime group as a separate slow test.
 function(logonomic_cli_addon_sdk_test_groups output)
-    set(groups)
+    set(groups --exclude-group fixture_paced_progress_lifetime)
     if(APPLE)
-        set(groups
-            auth_quota_contracts
-            account_refresh_contracts
-            conversation_export_contracts
-            usage_scan_contracts
-            usage_session_contracts
-            usage_repository_attribution_contracts
-            usage_owned_event_correction_contracts
-            json_accepts_rfc8259_documents
-            json_rejects_rfc8259_violations
-            json_utf8_follows_rfc3629
-            json_bounds_and_duplicates
-            json_numbers_are_exact
-            json_serialization_forms
-            json_utilities
-            identifier_grammars
-            sha256_fips_vectors
-            generation_digest_definition
-            validator_accepts_a_conforming_package
-            macos_adapter_executable_format
-            validator_reports_each_defect
-            package_source_listing_bounds
-            file_time_ticks_text
-            index_parser_static_rules
-            frame_decoder
-            stderr_ring
-            protocol_round_trips
-            protocol_strict_envelopes
-            session_tracker_rules
-            process_proposal_policy
-            simulator_stream_backpressure
-            simulator_darwin_retains_wait_until_cleanup
-            transcript_normalization
-            adapter_environment_contract
-            adapter_runtime_worker_lifetime
-            adapter_runtime_payload_lifetime
-            accounts_contracts
-            account_pet_contracts
-            account_display_names
-            environment_bootstrap_contracts
-            startup_observer_contracts
-            session_observation_contracts
-            lifecycle_correlation_contracts
-            provider_event_diagnostic_contracts
-            lifecycle_correlation_lifetime_contracts
-            managed_configuration_contracts
-            permission_snapshot_contracts
-            launcher_capability_contracts
-            launcher_approval_contracts
-            interactive_initial_prompt_contracts
-            terminal_codex_invocation_contracts
-            terminal_identity_contracts
-            presentation_media_contracts
-            assets_import_and_storage_contracts
-            session_contracts
-            delegated_model_selection_contracts
-            resume_inspection_contracts
-            lifecycle_and_ingress_contracts
-            context_state_contracts
-            execution_context_contracts
-            model_catalog_contracts
-            cooperative_description_contracts
-            model_state_contracts
-            child_state_contracts)
-    else()
-        set(groups --exclude-group fixture_paced_progress_lifetime)
+        # macOS runs the SDK contracts without the Windows/Linux fixture suites.
+        foreach(group IN ITEMS
+            observation_fixture_subsets simulator_windows_native_limits
+            fixture_positive_package fixture_package_file_variants fixture_behavior_variants fixture_transcripts)
+            list(APPEND groups --exclude-group ${group})
+        endforeach()
     endif()
     set(${output} ${groups} PARENT_SCOPE)
 endfunction()

@@ -1,17 +1,5 @@
-// The provider-unknown fixture adapter: one binary whose behaviour is chosen
-// by `--behavior <name>` in the package's adapter.argv (docs/conformance.md,
-// "Fixture roster"). The `conformant` behaviour is a complete conforming
-// adapter for profile-storage@1 and conformance-probe@1; `provider-surfaces`
-// adds the presentation, discovery and preparation surfaces, and the two
-// `provider-sessions` behaviours add the session, lifecycle and ingress
-// capabilities a conforming provider package implements. Every other
-// behaviour reproduces one contract violation or one edge the host must
-// handle, and is named after it. Two variant flags refine `provider-sessions`:
-// under `--classify-hang` its `classify_event` answers nothing until
-// cancelled, and under `--resume-foreign-digest` its `prepare_resume`
-// acknowledges another session's record than the one it received. The
-// `provider-initial-prompt` behaviour adopts interactive-initial-prompt@1
-// beside the current launch-preparation contract.
+// Fixture packages select their adapter behaviour and handshake declarations
+// through adapter.argv so the host can exercise them with one executable.
 //
 // Behaviours that need process control are implemented for POSIX and
 // Windows where an equivalent exists; `detach-grandchild` on Windows asks
@@ -67,6 +55,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -81,6 +70,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -947,7 +937,7 @@ struct Observation_options
     std::uint16_t quota_version = 0;
     std::uint16_t account_refresh_version = 0;
     std::uint16_t usage_version = 0;
-    std::uint16_t resume_version = 2;
+    std::uint16_t resume_version = addon::k_interactive_resume_environment_version;
     std::uint16_t session_declaration_version = addon::k_structured_session_version;
     bool          accounts      = false;
     std::string   mode          = "success";
@@ -1082,6 +1072,9 @@ public:
             for (const auto version : {addon::k_interactive_resume_inspection_version,
                      addon::k_interactive_resume_content_version})
             {
+                if (version == m_observations.resume_version) {
+                    continue;
+                }
                 const fs::path inspection_sidecar = addon::path_from_utf8(m_executable)
                     .parent_path().parent_path() / addon::sidecar_relative_path(
                         addon::k_interactive_resume_capability_id, version);
@@ -1445,14 +1438,15 @@ private:
             handle_probe(context);
         }
         else
-        if (request.capability == addon::Capability_pair{addon::k_auth_status_capability_id, m_observations.auth_version} ||
-            request.capability == addon::Capability_pair{addon::k_quota_capability_id, m_observations.quota_version})
+        if (request.capability == addon::Capability_pair{addon::k_auth_status_capability_id, addon::k_auth_status_environment_version} ||
+            request.capability == addon::Capability_pair{addon::k_quota_capability_id, addon::k_quota_exchange_version} ||
+            request.capability == addon::Capability_pair{addon::k_quota_capability_id, addon::k_quota_collection_version})
         {
             handle_observation(context);
             return;
         }
         else
-        if (request.capability == addon::Capability_pair{addon::k_usage_scan_capability_id, m_observations.usage_version} ||
+        if (request.capability == addon::Capability_pair{addon::k_usage_scan_capability_id, addon::k_usage_scan_acceptance_version} ||
             request.capability == addon::Capability_pair{addon::k_usage_repository_attribution_capability_id,
                 addon::k_usage_repository_attribution_version} ||
             request.capability == addon::Capability_pair{addon::k_usage_owned_event_correction_capability_id,
@@ -1503,7 +1497,8 @@ private:
             handle_delegated_session(context);
         }
         else
-        if (request.capability == addon::Capability_pair{addon::k_interactive_resume_capability_id, m_observations.resume_version} ||
+        if (request.capability == addon::Capability_pair{addon::k_interactive_resume_capability_id,
+                addon::k_interactive_resume_environment_version} ||
             request.capability == addon::Capability_pair{addon::k_interactive_resume_capability_id,
                 addon::k_interactive_resume_inspection_version} ||
             request.capability == addon::Capability_pair{addon::k_interactive_resume_capability_id,
@@ -4915,7 +4910,7 @@ private:
 int usage()
 {
     std::fprintf(stderr, "usage: unknown-fixture-adapter [--behavior <name>] [--classify-hang] "
-        "[--resume-foreign-digest] [--session-declaration-version <3|4>] | --child-sleep <ms>\n");
+        "[--resume-foreign-digest] [--session-declaration-version <version>] | --child-sleep <ms>\n");
     return 2;
 }
 
@@ -4927,6 +4922,14 @@ int main(int argc, char** argv)
     bool     classify_hang         = false;
     bool     resume_foreign_digest = false;
     Observation_options observations;
+    const std::map<std::string_view, std::uint16_t*> version_options{
+        {"--auth-version",                &observations.auth_version},
+        {"--quota-version",               &observations.quota_version},
+        {"--usage-version",               &observations.usage_version},
+        {"--resume-version",              &observations.resume_version},
+        {"--account-refresh-version",     &observations.account_refresh_version},
+        {"--session-declaration-version", &observations.session_declaration_version},
+    };
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
         if (argument == "--child-sleep" && i + 1 < argc) {
@@ -4957,30 +4960,15 @@ int main(int argc, char** argv)
             continue;
         }
         // Declaration-only fixtures need matching handshakes, including an opaque future version.
-        if (argument == "--session-declaration-version" && i + 1 < argc) {
-            const std::string version = argv[++i];
-            if (version != "3" && version != "4") {
+        if (const auto option = version_options.find(argument); option != version_options.end() && i + 1 < argc) {
+            const std::string_view version = argv[++i];
+            std::uint16_t number = 0;
+            const auto end = version.data() + version.size();
+            const auto parsed = std::from_chars(version.data(), end, number);
+            if (parsed.ec != std::errc{} || parsed.ptr != end || number == 0) {
                 return usage();
             }
-            observations.session_declaration_version = static_cast<std::uint16_t>(version[0] - '0');
-            continue;
-        }
-        if ((argument == "--auth-version" || argument == "--quota-version" || argument == "--usage-version" ||
-             argument == "--resume-version" || argument == "--account-refresh-version") && i + 1 < argc) {
-            const std::string version = argv[++i];
-            const bool accepted = argument == "--account-refresh-version" ? version == "1" || version == "2" :
-                argument == "--quota-version" ? version == "2" || version == "3" || version == "4" :
-                argument == "--usage-version" ? version == "3" || version == "4" :
-                argument == "--resume-version" ? version == "2" : version == "2" || version == "3";
-            if (!accepted) {
-                return usage();
-            }
-            const auto number = static_cast<std::uint16_t>(version[0] - '0');
-            if (argument == "--auth-version")  { observations.auth_version  = number; }
-            if (argument == "--quota-version") { observations.quota_version = number; }
-            if (argument == "--account-refresh-version") { observations.account_refresh_version = number; }
-            if (argument == "--usage-version") { observations.usage_version = number; }
-            if (argument == "--resume-version") { observations.resume_version = number; }
+            *option->second = number;
             continue;
         }
         if (argument == "--with-accounts") {

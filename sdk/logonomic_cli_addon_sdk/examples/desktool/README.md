@@ -10,8 +10,7 @@ You can run it without an account.
 From the SDK root, use CMake 3.25 or newer, a C++20 compiler, Ninja and Python
 3.9 or newer. Windows and Linux target x86-64. For the macOS preview use an
 arm64 compiler and add `-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0` to the configure command.
-The Linux package recipe needs Python 3.11+, patchelf, binutils and the Debian
-or Ubuntu runtime packages' ownership and copyright records.
+On Linux, install the [runtime packaging prerequisites](../../docs/package_contract.md#linux-native-runtime-deployment).
 
 ```sh
 cmake -S examples/desktool -B build/desktool -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -79,8 +78,9 @@ For a valid package with an empty scan, check the parent directory and run
 
 ## Adapt it to your CLI
 
-Use a reverse-domain package ID in a namespace you control when distributing
-your add-on. Change the ID in the bootstrap template and CMake package call.
+Set `desktool_package_id` in [CMakeLists.txt](CMakeLists.txt) to a reverse-domain
+name in your namespace. The project version supplies the package release
+and the version the example adapter reports in its handshake.
 In [adapter.cpp](adapter.cpp), change the executable lookup and recognition
 rules to match your CLI. The three [capability sidecars](package/capabilities)
 declare the versions advertised by the adapter. Presentation supplies the

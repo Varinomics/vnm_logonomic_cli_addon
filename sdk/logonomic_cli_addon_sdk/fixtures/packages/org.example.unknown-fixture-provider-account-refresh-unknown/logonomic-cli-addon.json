@@ -22,7 +22,7 @@
       "--probe-mode",
       "current-account",
       "--account-refresh-version",
-      "2"
+      "65535"
     ],
     "environment": {}
   },

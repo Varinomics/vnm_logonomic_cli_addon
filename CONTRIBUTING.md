@@ -1,6 +1,6 @@
 # Contributing to Logonomic CLI add-ons
 
-Use this repository for changes to the SDK, package format, tools or shared native host. A provider's own repository is the upstream for its CLI recognition, account handling and launch behavior. Both routes require repository access.
+Use this repository for changes to the SDK, package format, tools or shared native host. A provider's own repository is the upstream for its CLI recognition, account handling and launch behavior.
 
 ## Build a provider locally
 
@@ -13,7 +13,7 @@ cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
-Provider packages assemble under `build/package/<package-id>`. On Linux the standard package recipe needs Python 3.11+, patchelf, binutils and the installed runtime packages' provenance and notices. Providers with filesystem observation also require Qt 6.12 Core and the maintained observer. Each provider README lists its additional inputs.
+Provider packages assemble under `build/package/<package-id>`. Use the [Linux runtime packaging prerequisites](sdk/logonomic_cli_addon_sdk/docs/package_contract.md#linux-native-runtime-deployment) on Linux. Providers using the [filesystem observer](sdk/logonomic_cli_addon_sdk/docs/filesystem_lifecycle_observer.md) have additional build inputs listed in their own README.
 
 To try a replacement, use the original package ID. Point a separate desktop profile's development root at the parent of the assembled directory, restart with that profile and scan for the launcher. The [Copilot worked example](sdk/logonomic_cli_addon_sdk/docs/provider_contribution.md) includes a disposable profile, exact test commands, and removal of the override. For a new integration, the [DeskTool example](sdk/logonomic_cli_addon_sdk/examples/desktool/README.md) includes the package, three launcher declarations and a marker command.
 

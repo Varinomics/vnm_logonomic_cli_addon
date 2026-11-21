@@ -20,23 +20,9 @@ independent of Qt and the observer.
 
 ## What it contains
 
-The optional [resume-directory@2](docs/resume_directory_2.md) declaration states
-that a package can resume a conversation in a folder other than its original
-one, which the host requires before it offers another folder.
-
-The optional [session-wake@1](docs/session_wake_1.md) contract lets a provider
-notify its exact live native conversation after a mailbox commit. Discovery of
-the capability, preparation of a particular launch, native notification
-acceptance, and recipient acknowledgment are separate facts.
-
-The optional [terminal-identity@1](docs/terminal_identity_1.md) companion lets an
-opted-in native launch report an exact foreground conversation before its next
-hook. Provider-owned title parsing and frozen native-store context feed the
-existing lifecycle writer while preserving human captions and hook envelopes.
-
 | Part | Location | Purpose |
 |---|---|---|
-| Normative documents | `docs/` | the package, process and wire contracts; `profile-storage@1`, `accounts@2`, [auth-status@2](docs/auth_status_2.md), [current-account@1](docs/current_account_1.md), [account-refresh@1](docs/account_refresh_1.md), [quota@3](docs/quota_3.md) with [quota@2](docs/quota_2.md) compatibility, optional [quota-failure@1](docs/quota_failure_1.md), [usage-scan@3](docs/usage_scan_3.md), [usage-incremental@1](docs/usage_incremental_1.md) and optional [usage-session@1](docs/usage_session_1.md), plus the versionless [stored accounting codec](docs/stored_usage_accounting.md); the presentation, launcher-discovery, launch-preparation, interactive-initial-prompt and managed-assets contracts; the structured-session, delegated-session, [interactive-resume](docs/interactive_resume_2.md), lifecycle-events, coordination-delivery and helper-ingress contracts; the SVG subset annex; every numeric bound; and the conformance suite |
+| Normative documents | [docs/](docs/) | Package layout, process and core protocol, versioned capability contracts, resource limits and conformance checks |
 | Library | `include/logonomic_cli_addon/`, `src/` | identifiers, bounded JSON, SHA-256, bootstrap/index/sidecar parsing, package validation, generation digest, newline framing, protocol messages, capability codecs, process proposals, derived provider identity, the helper client, adapter runtime, host simulator, transcripts |
 | `logonomic_cli_addon_validate` | `tools/` | validates one package directory and prints its generation digest |
 | `logonomic_cli_addon_index` | `tools/` | writes a package's `package.files.json` |
@@ -66,9 +52,8 @@ Source consumers also receive these package recipe functions:
 - `logonomic_cli_addon_add_package(target package_id out_directory ADAPTER
   target ...)` assembles an adapter, its declared sidecars and package files,
   and writes their integrity index. The [DeskTool project](examples/desktool/CMakeLists.txt)
-  shows the source layout and invocation. The standard Linux recipe uses
-  Python 3.11+, patchelf, binutils and Debian or Ubuntu package metadata for
-  bundled compiler runtimes. See [Linux native runtime deployment](docs/package_contract.md#linux-native-runtime-deployment).
+  shows the source layout and invocation. See [Linux native runtime deployment](docs/package_contract.md#linux-native-runtime-deployment)
+  for the Linux recipe's build prerequisites.
 - `logonomic_cli_addon_package_platform(out_platform)` requires CMake 3.25 when
   invoked and proves a Windows/Linux x86_64 or macOS arm64 compiler target
   using compile-only probes, including each generated configuration.
@@ -86,21 +71,14 @@ Source consumers also receive these package recipe functions:
   and matching notices. Its inputs and standalone validation command are defined
   in [QtCore package assembly](docs/package_contract.md#qtcore-package-assembly).
 - `logonomic_cli_addon_install_package(package_directory package_id [TARGET
-  assembly_target])` registers a fresh artifact export under the install-time
-  prefix, preserving source permissions. Existing per-package destinations,
-  including dangling symlinks, are refused before copying. POSIX `DESTDIR`
-  staging is supported; a nonempty `DESTDIR` combined with a drive-letter
-  prefix is refused. When an embedding build adds the package, it adds no
-  install rules and registers the package and its assembly target instead.
+  assembly_target])` registers an [artifact export](docs/package_contract.md#exporting-a-package)
+  for standalone builds. In an embedded build it registers the assembly target.
 
 A package project also builds as a subproject of an embedding build that
 stages its packages itself; the switch, the registration and the guards an
 embeddable package needs are specified in `docs/package_contract.md`,
 "Embedded build".
 
-Artifact export is not atomic. A failed export may leave a partial directory;
-choose a fresh destination or manually remove only the identified disposable
-export before retrying. Never use that cleanup to remove an installed generation.
 Stage the complete directory outside the active roots before replacing an
 installed package. Selection changes on desktop restart. See the
 [installation and update guide](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
@@ -131,10 +109,6 @@ The input, receipt and read-only verification contracts are specified in
 staging before sealing their inventories or signing their own binaries.
 
 ## Writing an adapter
-
-[Structured and delegated session version 3](docs/structured_session_3.md)
-supports an optional capability-owned stdin EOF request while retaining
-inspection through native process exit.
 
 Choose C++20 or another language that can deliver a directly executable
 adapter for the target platform. The language-neutral contracts define the

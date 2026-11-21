@@ -104,7 +104,7 @@ bool test_auth_quota_contracts()
     const auto continued = addon::decode_quota_inspect_result(continuation_payload, false, &exchange_failure, 2);
     SDK_CHECK(continued && continued->stdin_bytes == continuation.stdin_bytes,
         "quota2 can send the next protocol message without closing stdin");
-    SDK_CHECK(!addon::decode_quota_inspect_result(continuation_payload, false, &exchange_failure, 4),
+    SDK_CHECK(!addon::decode_quota_inspect_result(continuation_payload, false, &exchange_failure, 65535),
         "unknown quota versions are not admitted");
     continuation.complete = true;
     continuation.observation = addon::Quota_observation{};

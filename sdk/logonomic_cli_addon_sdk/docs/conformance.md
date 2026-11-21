@@ -170,7 +170,7 @@ positive package's files and differ in `adapter.argv`:
 
 ### The provider-session packages
 
-The five provider-session packages share the sidecars of
+The provider-session packages share sidecars from
 `fixtures/packages/_sessions_shared/` and carry the packaged helper
 `helpers/unknown_fixture_helper`, a Qt-free executable built on the SDK
 (`fixtures/unknown_fixture_helper.cpp`). coordination-delivery@1 is static;
@@ -331,19 +331,10 @@ Steps:
 | `shutdown` | `grace_ms` (default `k_shutdown_grace_ms`) | sends `shutdown`, waits for exit, terminates and kills on expiry |
 | `wait_exit` | `timeout_ms` | pumps until the adapter has exited or the timeout passes |
 
-The five scripts in `fixtures/scripts/` - `acknowledge.json`,
-`cancel_during_hang.json`, `crash.json`, `double_result.json`,
-`shutdown.json` - are shared with Logonomic's broker tests, which execute the
-same steps through the production broker and compare transcripts. Five more
-drive the provider-session packages: `structured_prepare_inspect.json`
-(prepare, an incremental inspection from the initial state, a final one over
-a complete helper output), `delegated_prepare.json`, `resume_prepare.json` (a
-usable record, then one without a session identifier),
-`classify_events.json` (start, resume, `Stop`, `UserPromptSubmit`, `Ignored`)
-and, for `provider-sessions-continuous`, `observe_poll.json` (a short window,
-then a poll). Their session working directory `/unknown-fixture-session`
-exists on no host, so the window observes no events file and the poll returns
-none.
+The [fixture scripts](../fixtures/scripts/) include the steps shared with the desktop
+broker tests for transcript comparison. For example, `acknowledge.json` requests
+profile storage and `structured_prepare_inspect.json` follows preparation with
+incremental and final inspection.
 
 ```sh
 logonomic_cli_addon_host_simulator <package-dir> --script fixtures/scripts/acknowledge.json [--transcript <file>]
@@ -410,19 +401,16 @@ quota-usage,observations}` covers every nonempty auth-status/quota/usage-scan
 subset; each also has an `-accounts` variant. The final name means all three.
 They share presentation/discovery/launch preparation and a packaged native
 helper, without structured-session sidecars. Account variants additionally admit current accounts@2 discovery and resolution.
-Only `org.example.unknown-fixture-provider-observations-accounts` also declares
-quota-failure@1, so a classified cause or an unusable explanation reaches the host
-there alone; the other quota packages report the same failures neutrally.
+`org.example.unknown-fixture-provider-observations-accounts` exercises classified
+quota failures. A quota package without that declaration reports failures neutrally.
 Provider-surfaces and provider-accounts fixtures retain empty observation subsets.
 
 `provider-observations` adapter flags select only the declared capabilities:
 `--auth-version`, `--quota-version`, `--usage-version`, and `--with-accounts`.
-The current fixture defaults are accounts/auth/quota 2, usage 3, launch
-preparation 3, structured/delegated sessions 2, interactive resume 2, and helper
-ingress 2. Account-refresh remains 1 with the current frozen/chunked probe
-grammar. Version 3 structured/delegated/helper variants remain separate current
-contracts. The ordinary provider-session fixture owns the current resume cases;
-there is no duplicate version-only resume fixture.
+The [fixture recipes](../fixtures/packages.cmake) assemble the sidecars and
+[package bootstraps](../fixtures/packages/) specify the adapter's arguments.
+Inspect the assembled package with `logonomic_cli_addon_validate` for its exact
+declarations.
 `--probe-mode` selects controlled auth/quota failures, a quota failure with a
 classified cause (`quota-request-failed`, `quota-timed-out`,
 `quota-credentials-expired`, `quota-invalid-response`) or with an explanation
@@ -435,9 +423,7 @@ opening usage request that works for two seconds while it reports progress,
 scanning one account at a time, or one that reports once and then ignores
 cancellation. Packages ending `unknown-auth`, `unknown-quota` and
 `unknown-usage` declare an unsupported future version only for the named
-sibling: auth uses 3; quota and usage use 4. Other declared siblings retain
-their current versions (auth/quota 2, usage 3). The host must isolate the
-unsupported capability.
+capability. The host must keep its supported siblings available.
 
 The `observation` helper mode runs through real host process ownership and
 returns its inherited selected scope and actual UTC timestamp. Its errors

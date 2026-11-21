@@ -148,4 +148,4 @@ further frame is written.
 | `k_terminate_to_kill_ms` | terminate (SIGTERM / process termination) until kill (SIGKILL / Job termination) |
 | `k_reap_deadline_ms` | kill until every descendant status has been collected |
 
-The values are in `limits.md`.
+See the [deadline constants](../include/logonomic_cli_addon/limits.h) for their values in milliseconds.

@@ -1,5 +1,5 @@
 {
   "capability_id": "auth-status",
-  "version": 3,
+  "version": 65535,
   "payload": {}
 }

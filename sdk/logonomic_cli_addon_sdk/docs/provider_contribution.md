@@ -17,10 +17,9 @@ and usage in `src/copilot_npm.cpp`, `src/copilot_accounts.cpp`,
 [provider change](https://github.com/Varinomics/vnm_logonomic_cli_copilot/commit/bc665640732bced77d5af62d88b32fa87b07e2ea)
 shows the matching test and implementation together.
 
-From a checkout of the provider, use CMake 3.25 or newer, Ninja and a C++20
-compiler. On Linux the standard package recipe also needs Python 3.11+,
-patchelf, binutils and Debian or Ubuntu runtime package metadata and notices.
-Point CMake at your checkout of the SDK.
+From the [provider checkout](https://github.com/Varinomics/vnm_logonomic_cli_copilot),
+install its documented build dependencies and point CMake at your SDK checkout.
+On Linux, include the [runtime packaging prerequisites](package_contract.md#linux-native-runtime-deployment).
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -59,7 +58,7 @@ the selected profile. To return to the bundled generation, remove the
 development override with the instance closed and restart. See the
 [installation and replacement instructions](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
 
-With repository access, propose the fixture and fix in the
+Propose the fixture and fix in the
 [maintained Copilot provider](https://github.com/Varinomics/vnm_logonomic_cli_copilot).
 Provider maintainers own the accepted code. The bundle owner selects official
 packages for desktop distribution.

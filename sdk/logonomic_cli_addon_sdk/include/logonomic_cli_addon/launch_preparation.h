@@ -109,7 +109,7 @@ std::optional<Prepare_request> decode_prepare_request(
 enum class Working_directory_patch
 {
     INHERIT,           // the terminal keeps the user's repository path
-    REPOSITORY_ROOT,   // the same value today; reserved for parity with the process-proposal vocabulary
+    REPOSITORY_ROOT,   // explicitly selects the host's repository path
 };
 
 const char* working_directory_patch_name(Working_directory_patch patch);

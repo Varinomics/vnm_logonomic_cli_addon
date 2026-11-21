@@ -7,6 +7,7 @@ if(NOT LOGONOMIC_CLI_ADDON_EMBEDDED)
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
 endif()
 project(desktool_addon VERSION 1.0.0 LANGUAGES CXX)
+set(desktool_package_id org.example.desktool)
 
 if(NOT LOGONOMIC_CLI_ADDON_EMBEDDED)
     set(LOGONOMIC_CLI_ADDON_SDK_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../.." CACHE PATH
@@ -16,6 +17,7 @@ if(NOT LOGONOMIC_CLI_ADDON_EMBEDDED)
 endif()
 
 add_executable(desktool_adapter adapter.cpp)
+target_compile_definitions(desktool_adapter PRIVATE LOGONOMIC_CLI_ADDON_ADAPTER_VERSION="${PROJECT_VERSION}")
 target_link_libraries(desktool_adapter PRIVATE logonomic_cli_addon_sdk::sdk)
 if(MINGW)
     # The host runs the adapter from its package with a filtered environment.
@@ -24,7 +26,7 @@ endif()
 
 logonomic_cli_addon_package_platform(desktool_platform)
 configure_file(package/logonomic-cli-addon.json.in generated/logonomic-cli-addon.json @ONLY)
-logonomic_cli_addon_add_package(desktool_package org.example.desktool desktool_package_directory
+logonomic_cli_addon_add_package(desktool_package "${desktool_package_id}" desktool_package_directory
     ADAPTER desktool_adapter)
 
 if(LOGONOMIC_CLI_ADDON_EMBEDDED)
