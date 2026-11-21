@@ -16,6 +16,8 @@ ctest --test-dir build --output-on-failure
 
 Use `-DLOGONOMIC_CLI_ADDON_BUILD_HOST=ON` to include the native host. It also needs CMake 3.22 or newer, Qt 6.12 Core, [vnm_process_custody](https://github.com/Varinomics/vnm_process_custody) and [vnm_qt_dispatch](https://github.com/Varinomics/vnm_qt_dispatch). The [process contract](sdk/logonomic_cli_addon_sdk/docs/process_contract.md) describes how the host starts adapters.
 
+Package authors implement adapter handlers with the SDK. Within the production host, `Request_broker` admits requests against a generation's negotiated capability pairs, enforces deadlines and retires the generation when cancellation grace expires. Its lower-level `Generation_client` owns the per-generation transport, handshake and message exchange. Host callers that need invocation policy submit through the broker. See the [broker interface](host/src/logonomic_cli_addon_request_broker.h) and [generation client](host/src/logonomic_cli_addon_generation_client.h).
+
 ## Match a desktop release
 
 The desktop's `cli-addon-core-compatibility.json` lists the capability pairs it adopts. Release source tuples identify the add-on system checkout under `vnm_logonomic_cli_addon`. Use that exact checkout for its SDK documentation and tools.
