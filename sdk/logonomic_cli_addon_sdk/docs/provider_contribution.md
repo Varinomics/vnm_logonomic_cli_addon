@@ -17,10 +17,31 @@ and usage in `src/copilot_npm.cpp`, `src/copilot_accounts.cpp`,
 [provider change](https://github.com/Varinomics/vnm_logonomic_cli_copilot/commit/bc665640732bced77d5af62d88b32fa87b07e2ea)
 shows the matching test and implementation together.
 
-Build the [Copilot provider](https://github.com/Varinomics/vnm_logonomic_cli_copilot)
-against your SDK checkout using the [provider build instructions](sdk_tools.md#building-an-existing-provider).
-To run just the package and protocol tests for this change, run the following
-from the provider checkout.
+### Exercise account selection
+
+After [building the Copilot provider](sdk_tools.md#building-an-existing-provider),
+try its account test as a next step after DeskTool. It uses a fixture
+executable and temporary profiles, so this exercise needs no Copilot login
+or npm installation. Run it from the provider checkout.
+
+```sh
+ctest --test-dir build -V --no-tests=error -R '^copilot_accounts_protocol$'
+```
+
+Follow `profile` and `source_routes` in the [test](https://github.com/Varinomics/vnm_logonomic_cli_copilot/blob/master/tests/accounts_tests.py).
+One launcher sets `COPILOT_HOME` and supplies both `--config-dir=unused`
+and a later `--config-dir "chosen ü"`. The adapter must report the last
+specified directory under the test's working directory. The test sends
+`accounts@2 discover`, then `accounts@2 resolve`, and checks that exactly one
+source profile was found and both answers identify the same account.
+`selected_preparation` also sends a real account key paired with an unrelated
+profile path and requires an unavailable result. A successful run prints
+`PASS Copilot account profiles`. [Account request and result contract](accounts_2.md)
+
+### Exercise the npm integration
+
+To run the package and protocol tests for this integration, use the same
+[provider checkout](https://github.com/Varinomics/vnm_logonomic_cli_copilot).
 
 ```sh
 ctest --test-dir build --output-on-failure \
