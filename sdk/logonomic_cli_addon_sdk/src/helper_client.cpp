@@ -237,9 +237,8 @@ std::optional<Provider_event_outcome> parse_committed_outcome(std::string_view t
     parse_limits.max_bytes = limits::k_max_helper_client_stdout_bytes;
     Json_parse_error parse_error;
     const std::optional<Json_value> document = parse_json(text, parse_limits, &parse_error);
-    // The control lane's admission and polling envelopes are never final outcomes.
-    if (!document.has_value() || !document->is_object() || document->find("kind") ||
-        document->find("status") || document->find("outcome"))
+    if (!document.has_value() || !document->is_object() ||
+        strict::unexpected_member(*document, {"accepted", "reason", "epoch", "helper_response"}).has_value())
     {
         return std::nullopt;
     }

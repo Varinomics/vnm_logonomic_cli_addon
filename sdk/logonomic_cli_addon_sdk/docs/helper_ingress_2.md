@@ -161,10 +161,12 @@ parses an outcome object.
 Exit codes: 0 committed (accepted or refused), 1 transport failure, 2 invalid
 arguments or environment, 4 still pending at the deadline. Exit 4 leaves
 stdout empty. On exit 0, an accepted outcome omits `reason` and a refusal
-includes a nonempty reason string. The SDK accepts additional outcome metadata
-and new refusal reasons. A control-lane admission or status envelope, a
-contradictory outcome or a pending exit with output leaves the delivery
-unresolved. The SDK reports `INVALID_RESPONSE` and returns its replay identity.
+includes a nonempty reason string. The four outcome fields are `accepted`,
+`reason`, `epoch` and `helper_response`. The latter may carry any provider
+JSON value. Refusal reasons are open strings. An unknown outcome field, a
+control-lane admission or status envelope, a contradictory outcome or a
+pending exit with output leaves the delivery unresolved. The SDK reports
+`INVALID_RESPONSE` and returns its replay identity.
 
 A retry after a lost response reuses the same `idempotency_key` and
 `transition_nonce`. The helper is stateless across processes, so the replay

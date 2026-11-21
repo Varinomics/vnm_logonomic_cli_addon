@@ -3151,6 +3151,7 @@ bool test_helper_client_contract()
         {"CommittedReply", R"({"accepted":false,"reason":""})"},
         {"CommittedReply", R"({"status":"pending"})"},
         {"CommittedReply", R"({"accepted":true,"kind":"provider_event_admitted"})"},
+        {"CommittedReply", R"({"accepted":true,"unknown_outcome_field":5})"},
         {"PendingReply",   R"({"accepted":true})"},
     }) {
         const auto invalid = client.deliver_provider_event(scenario, object_with({{"reply", addon::Json_value(reply)}}), key, nonce);
@@ -3160,10 +3161,12 @@ bool test_helper_client_contract()
             "an inconsistent wrapper reply leaves the delivery unresolved with its replay identity");
     }
     const auto future_refusal = client.deliver_provider_event("CommittedReply", object_with({
-        {"reply", addon::Json_value(R"({"accepted":false,"reason":"future_lane_reason","extra_outcome_field":5})")},
+        {"reply", addon::Json_value(R"({"accepted":false,"reason":"future_lane_reason","helper_response":{"provider_data":5}})")},
     }));
+    const auto provider_data = object_with({{"provider_data", addon::Json_value(5)}});
     SDK_CHECK(future_refusal.committed && !future_refusal.accepted && future_refusal.reason == "future_lane_reason" &&
-        !future_refusal.local_diagnostic, "additive outcome metadata and new refusal reasons preserve the host decision");
+        !future_refusal.local_diagnostic && future_refusal.helper_response == provider_data,
+        "the wrapper preserves new refusal reasons and arbitrary provider data in the helper response");
     const addon::Provider_event_outcome garbage = client.deliver_provider_event("Garbage", body);
     SDK_CHECK(!garbage.committed && garbage.exit_code == addon::k_helper_exit_transport_failure &&
         garbage.local_diagnostic && garbage.local_diagnostic->failure == addon::Helper_local_failure::INVALID_RESPONSE &&
