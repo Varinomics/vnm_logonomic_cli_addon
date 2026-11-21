@@ -202,10 +202,12 @@ script as one queue request for that many slots. The SDK's own
 CTest entry, `logonomic_cli_addon_embedded_package_tests`, declares its width as
 its `PROCESSORS` property.
 
-Both builds are Release, compiled locally and, with MSVC, linked with `/Brepro`,
-so that identical sources give identical bytes. MSVC derives the mangled names
-of anonymous-namespace types from the source path, so two separate runs give
-comparable digests only when the package and the SDK are at the same paths in
-both. `STANDALONE_ONLY=ON` builds only the standalone half, to record the
-digest of a package revision that cannot be embedded yet.
+The check compares standalone and embedded Release packages built locally from
+one source tree with the same toolchain. With MSVC it links with `/Brepro` and
+bypasses FASTBuild's object cache for these two builds. Cache preprocessing
+can give MSVC different input paths and change the generated names of
+anonymous-namespace types. To compare digests from separate MSVC runs, use
+the same absolute package and SDK source paths in both.
+
+`STANDALONE_ONLY=ON` builds only the standalone half, to record the digest of a package revision that cannot be embedded yet.
 `EXPECTED_GENERATION_DIGEST` then makes a later run require that digest.

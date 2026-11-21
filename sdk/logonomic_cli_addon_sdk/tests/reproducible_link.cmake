@@ -5,3 +5,8 @@
 if(MSVC)
     add_link_options(/Brepro)
 endif()
+
+if(PROJECT_IS_TOP_LEVEL AND CMAKE_GENERATOR STREQUAL "FASTBuild")
+    set(EMBEDDED_PACKAGE_COMPILER_ID "${CMAKE_CXX_COMPILER_ID}" CACHE INTERNAL
+        "Compiler used by the embedded package comparison")
+endif()

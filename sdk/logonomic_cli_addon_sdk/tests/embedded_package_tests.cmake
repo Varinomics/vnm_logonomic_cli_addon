@@ -192,21 +192,27 @@ if(DEFINED TEST_TOOLCHAIN_FILE AND NOT TEST_TOOLCHAIN_FILE STREQUAL "")
     list(APPEND configure_arguments "-DCMAKE_TOOLCHAIN_FILE=${TEST_TOOLCHAIN_FILE}")
 endif()
 
+set(standalone_build "${TEST_ROOT}/standalone")
+set(standalone_prefix "${TEST_ROOT}/standalone-install")
+embedded_package_run("The standalone configure"
+    "${CMAKE_COMMAND}" -S "${PACKAGE_SOURCE}" -B "${standalone_build}" ${configure_arguments}
+    "-DLOGONOMIC_CLI_ADDON_SDK_SOURCE=${sdk_source}")
+
 # A FASTBuild tree takes its job count natively; no build here distributes.
 if(TEST_GENERATOR STREQUAL "FASTBuild")
     set(build_arguments --config Release -- -j${TEST_PARALLEL_LEVEL})
-    if(TEST_FASTBUILD_USE_CACHE)
+    load_cache("${standalone_build}" READ_WITH_PREFIX standalone_ EMBEDDED_PACKAGE_COMPILER_ID)
+    if(standalone_EMBEDDED_PACKAGE_COMPILER_ID STREQUAL "MSVC")
+        # Cache preprocessing can give MSVC a different input path for each
+        # build, changing the mangled names of anonymous-namespace types.
+        unset(ENV{FASTBUILD_CACHE_MODE})
+    elseif(TEST_FASTBUILD_USE_CACHE)
         list(APPEND build_arguments -cache)
     endif()
 else()
     set(build_arguments --config Release --parallel ${TEST_PARALLEL_LEVEL})
 endif()
 
-set(standalone_build "${TEST_ROOT}/standalone")
-set(standalone_prefix "${TEST_ROOT}/standalone-install")
-embedded_package_run("The standalone configure"
-    "${CMAKE_COMMAND}" -S "${PACKAGE_SOURCE}" -B "${standalone_build}" ${configure_arguments}
-    "-DLOGONOMIC_CLI_ADDON_SDK_SOURCE=${sdk_source}")
 embedded_package_run("The standalone build"
     "${CMAKE_COMMAND}" --build "${standalone_build}" ${build_arguments})
 embedded_package_run("The standalone install"
