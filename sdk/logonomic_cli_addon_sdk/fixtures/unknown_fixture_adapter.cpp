@@ -1195,7 +1195,10 @@ public:
             }
         });
         runtime.set_shutdown_hook([this](const addon::Shutdown_request& shutdown) {
-            if (m_behavior == Behavior::SLOW_SHUTDOWN) {
+            if (m_observations.mode == "crash-on-shutdown") {
+                std::_Exit(23);
+            }
+            if (m_behavior == Behavior::SLOW_SHUTDOWN || m_observations.mode == "slow-shutdown") {
                 sleep_ms((int)shutdown.grace_ms * 4);
             }
         });
@@ -2725,11 +2728,19 @@ private:
         const addon::Invoke_request& request = context.request();
         if (request.operation == addon::k_discover_operation) {
             addon::Contract_failure failure;
-            if (!addon::decode_discover_request(request.payload, &failure)) {
+            const auto decoded = addon::decode_discover_request(request.payload, &failure);
+            if (!decoded) {
                 context.fail(
                     addon::Result_status::FAILED,
                     failure.reason_code,
                     failure.detail);
+                return;
+            }
+            if (m_observations.mode == "discover-on-path" &&
+                !addon::resolve_program("unknown-fixture-cli", addon::environment_pairs(decoded->ambient_environment),
+                    decoded->default_home_fallback))
+            {
+                context.succeed(addon::encode_candidates({}));
                 return;
             }
             addon::Json_value evidence = addon::Json_value::object();
