@@ -116,7 +116,7 @@ if(LOGONOMIC_CLI_ADDON_HOST_BUILD_TESTS)
         logonomic_register_native_host_test(${target} ${target})
     endfunction()
     logonomic_add_native_host_test(logonomic_cli_addon_generation_tests tests/generation_tests.cpp)
-    foreach(scenario IN ITEMS forced fault shutdown unsolicited_exit)
+    foreach(scenario IN ITEMS forced fault shutdown unsolicited_exit unconfirmed)
         logonomic_register_native_host_test(logonomic_cli_addon_generation_idle_${scenario}
             logonomic_cli_addon_generation_tests ${scenario})
     endforeach()

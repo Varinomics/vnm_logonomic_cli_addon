@@ -23,6 +23,7 @@
 #include <cerrno>
 #endif
 
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -84,7 +85,32 @@ QByteArray adapter_hash(const QString& path)
     return file.open(QIODevice::ReadOnly) && digest.addData(&file) ? digest.result() : QByteArray{};
 }
 
-enum class Stop { ORDERLY, DIRECT_SHUTDOWN, FORCED, FAULT, SHUTDOWN_DURING_IDLE, UNSOLICITED_EXIT };
+std::atomic_uint32_t g_unconfirmed_custodian = 0;
+
+const logonomic::Native_child_custody_callbacks* unconfirmed_native_family()
+{
+    static const logonomic::Native_child_custody_callbacks callbacks{
+        .reserve = [](void** record) {
+            *record = new std::uint32_t{};
+            return static_cast<int>(logonomic::Native_child_custody::Admission::ADMITTED);
+        },
+        .job_handle = [](void*) -> std::uintptr_t { return 0; },
+        .publish_created = [](void* record, std::uint32_t pid, std::uintptr_t) {
+            *static_cast<std::uint32_t*>(record) = pid;
+            return true;
+        },
+        .cancel_uncreated = [](void*) {},
+        .observe_reaped = [](void* record) {
+            g_unconfirmed_custodian.store(*static_cast<std::uint32_t*>(record));
+            return false;
+        },
+        .handoff_wait_authority = [](void*) {},
+        .destroy = [](void* record) { delete static_cast<std::uint32_t*>(record); }
+    };
+    return &callbacks;
+}
+
+enum class Stop { ORDERLY, DIRECT_SHUTDOWN, FORCED, FAULT, SHUTDOWN_DURING_IDLE, UNSOLICITED_EXIT, UNCONFIRMED };
 
 bool exercise_activation(host::Activation_context context, Stop stop)
 {
@@ -123,6 +149,9 @@ bool exercise_activation(host::Activation_context context, Stop stop)
             if (kind != Reason::IDLE_STOP && kind != Reason::SHUTDOWN) {
                 std::fprintf(stderr, "Generation retired: %s: %s\n", qPrintable(reason), qPrintable(detail));
             }
+            if (stop == Stop::UNCONFIRMED && g_unconfirmed_custodian.load() != 0) {
+                loop.quit();
+            }
         });
     QObject::connect(&client, &host::Generation_client::finished, &loop, &QEventLoop::quit);
 
@@ -136,6 +165,19 @@ bool exercise_activation(host::Activation_context context, Stop stop)
             writer_lock.reset();
         }
     });
+
+    QTimer membership_check;
+    if (stop == Stop::UNCONFIRMED) {
+        QObject::connect(&membership_check, &QTimer::timeout, &loop, [&]() {
+            if (g_unconfirmed_custodian.load() != 0) {
+                membership_check.stop();
+                // The reader has its final answer. Bound the wait for the
+                // broker-thread disposition even if it is never delivered.
+                QTimer::singleShot(1000, &loop, &QEventLoop::quit);
+            }
+        });
+        membership_check.start(25);
+    }
 
     const auto request = sdk::encode_discover_request(
         sdk::Json_value::object(), context.roots.per_user_root.toStdString(), sdk::host_platform_id());
@@ -190,13 +232,32 @@ bool exercise_activation(host::Activation_context context, Stop stop)
         });
     loop.exec();
 
-    ok &= check(results == 1 && client.custody_finished() && !writer_lock,
-        "one discovery result, settled native custody and released writer lock");
-    ok &= check(!QFileInfo::exists(scratch), "settlement released activation scratch");
+    ok &= check(results == 1 && !writer_lock, "one discovery result and released writer lock");
     for (auto pid : pids) {
         ok &= check(pid > 0 && process_exited(pid), "each recorded native process exited before completion");
     }
+    if (stop != Stop::UNCONFIRMED) {
+        ok &= check(client.custody_finished() && !QFileInfo::exists(scratch),
+            "settled native custody releases activation scratch");
+    }
     switch (stop) {
+        case Stop::UNCONFIRMED: {
+            QString error;
+            const auto lock = host::Run_lock::try_acquire(scratch + QLatin1String(host::k_run_lock_suffix), &error);
+            ok &= check(retirement == Reason::CUSTODIAN_LOST && client.state() == State::TERMINALLY_UNAVAILABLE &&
+                g_unconfirmed_custodian.load() == client.custodian_process_id(),
+                "the native family's final denial retires the original custodian");
+            ok &= check(!client.custody_finished() && client.idle_stop_outcome() == Outcome::NONE &&
+                QFileInfo(scratch).isDir() && !lock && error.isEmpty(),
+                "unconfirmed custody retains scratch and its live lock");
+            bool refused = false;
+            broker.invoke({"after-denial", pair, QStringLiteral("discover")}, [&](host::Broker_result result) {
+                refused = result.status == Logonomic_cli_capability_status::PACKAGE_UNAVAILABLE &&
+                    result.reason_code == QLatin1String(sdk::reason::k_custodian_lost) &&
+                    result.completion == host::Request_completion::LOCAL;
+            });
+            return check(refused, "future work fails immediately with the terminal custody reason") && ok;
+        }
         case Stop::ORDERLY:
             return check(retirement == Reason::IDLE_STOP && client.idle_stop_outcome() == Outcome::ORDERLY,
                 "cooperative shutdown confirmed as orderly idle") && ok;
@@ -246,7 +307,7 @@ int main(int argc, char** argv)
         return 1;
     }
     const QString scenario = args.value(4);
-    if (!scenario.isEmpty()) {
+    if (!scenario.isEmpty() && scenario != "unconfirmed") {
         const char* mode = scenario == "unsolicited_exit" ? "result-then-exit" :
                            scenario == "fault"            ? "crash-on-shutdown" : "slow-shutdown";
         if (!check(set_shutdown_fixture(installation.path(), mode), "set fixture shutdown behavior")) {
@@ -265,6 +326,10 @@ int main(int argc, char** argv)
     host::Activation_context context{*record, roots, args[2], args[3], platform,
         {{QStringLiteral("launcher-discovery"), 1}}};
     context.activation_nonce = QByteArray::fromStdString(sdk::random_nonce_hex());
+    if (scenario == "unconfirmed") {
+        context.native_family = &unconfirmed_native_family;
+        return exercise_activation(context, Stop::UNCONFIRMED) ? 0 : 1;
+    }
     if (scenario == "forced")   return exercise_activation(context, Stop::FORCED) ? 0 : 1;
     if (scenario == "fault")    return exercise_activation(context, Stop::FAULT) ? 0 : 1;
     if (scenario == "shutdown") return exercise_activation(context, Stop::SHUTDOWN_DURING_IDLE) ? 0 : 1;

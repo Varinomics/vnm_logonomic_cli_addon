@@ -820,6 +820,13 @@ void Generation_client::Impl::end_process_tree(bool kill_now)
         return;
     }
     stop_sent = true;
+#if defined(__APPLE__)
+    if (adapter_exited) {
+        // The Darwin native owner already began settlement at root exit. Its
+        // custodian drains the relay and sends Reaped without waiting for Stop.
+        return;
+    }
+#endif
     custody_stop_requested.store(true);
     discard_link_output.store(true);
     wake();
@@ -1047,6 +1054,7 @@ void Generation_client::Impl::on_control_closed(bool clean)
 void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool scope_confirmed, bool cleanup_complete)
 {
     const QPointer<Generation_client> guard(owner);
+    stop_sent = true;
 #if defined(__APPLE__)
     constexpr int normal_exit_code = 0;
 #else
@@ -1058,10 +1066,9 @@ void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool scop
     if (state == State::IDLE_STOPPING && exit.signal == 0 && exit.exit_code == normal_exit_code &&
         adapter_exited && orderly_supervisor_exit)
     {
-        if (!cleanup_complete) {
-            return;
-        }
-        if (!scope_confirmed) {
+        // The reader has finished its native observations. A final denial
+        // retires admission while the missing proof keeps custody retained.
+        if (!scope_confirmed || !cleanup_complete) {
             retire_internal(Retirement_reason_kind::CUSTODIAN_LOST, reason::k_custodian_lost,
                 "the custodian ended without confirming idle cleanup", true);
         }
@@ -1078,7 +1085,6 @@ void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool scop
     }
     else
     if (is_live()) {
-        stop_sent = true;
         retire_internal(
             Retirement_reason_kind::CUSTODIAN_LOST,
             reason::k_custodian_lost,
@@ -1742,6 +1748,20 @@ void Generation_client::Impl::run_reader()
                 milliseconds(limits::k_reap_deadline_ms));
         }
     };
+    const auto write_control = [&](const std::uint8_t* bytes, std::size_t size) {
+        const auto status = control.send(bytes, size);
+        if (status == process::Io_status::TRANSFERRED) {
+            return;
+        }
+#if defined(__APPLE__)
+        // A grace deadline can race the custodian's final receipt before the
+        // broker sees the adapter exit. Drain the readable socket through EOF.
+        if (status == process::Io_status::CLOSED && control.valid()) {
+            return;
+        }
+#endif
+        close_control();
+    };
     const auto close_link = [&]() {
         link.close();
         link_open = false;
@@ -1836,9 +1856,7 @@ void Generation_client::Impl::run_reader()
                     break;
                 }
                 case Outgoing::Kind::CONTROL:
-                    if (control_open && control.send(item.bytes.data(), item.bytes.size()) != process::Io_status::TRANSFERRED) {
-                        close_control();
-                    }
+                    if (control_open) write_control(item.bytes.data(), item.bytes.size());
                     pending.pop_front();
                     continue;
                 case Outgoing::Kind::CLOSE_CONTROL:
@@ -1982,12 +2000,7 @@ void Generation_client::Impl::run_reader()
                                 protocol::Stop_request stop;
                                 stop.grace_ms = 0;
                                 const std::string encoded = protocol::encode(protocol::Message(stop));
-                                if (control.send(
-                                        reinterpret_cast<const std::uint8_t*>(encoded.data()),
-                                        encoded.size()) != process::Io_status::TRANSFERRED)
-                                {
-                                    close_control();
-                                }
+                                write_control(reinterpret_cast<const std::uint8_t*>(encoded.data()), encoded.size());
                             }
                             else {
                                 close_control();

@@ -380,14 +380,19 @@ driving the same adapter produce the same lines:
 - an adapter exit the host did not request records `! adapter_exited
   exit_code=<n>` or `! adapter_exited signal=<n>` and then
   `! retired adapter_exited`;
-- an exit after `shutdown` records only `! adapter_exited exit_code=<n>`;
+- an exit after a scripted `shutdown` records only `! adapter_exited exit_code=<n>`;
   the generation retires with reason `shutdown` without a `retired` line,
   because the host asked for it. A shutdown the adapter does not honour within
   its grace records `! terminated`, then `! adapter_exited signal=15` (Linux)
   or `! adapter_exited exit_code=1` (Windows) when the adapter dies on
   termination, or `! killed` and the killed exit line when the
   terminate-to-kill interval also expires; no `retired` line follows a
-  requested shutdown.
+  scripted shutdown.
+
+The desktop also sends `shutdown` to idle packages. It requires a clean
+adapter exit or a confirmed host-forced exit, followed by native settlement,
+before it can start another activation. An unexplained abnormal exit retires
+the package for the run.
 
 A shutdown of the positive package records exactly five lines: the host
 hello, the adapter hello, the capabilities, the shutdown, and
