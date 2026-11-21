@@ -1,20 +1,38 @@
 # Contributing to Logonomic CLI add-ons
 
-Use this repository for changes to the SDK, package format, tools or shared native host. A provider's own repository is the upstream for its CLI recognition, account handling and launch behavior.
+Choose the repository that owns the behavior you want to change. If Copilot
+selects the wrong profile, for example, the fix belongs with the Copilot
+adapter. A change to the common message format belongs in this repository.
+A new action in Logonomic needs a desktop consumer.
 
 ## Build a provider locally
 
-From the provider checkout, use its documented platform dependencies and a C++20 toolchain. Point the build at the SDK directory in your add-on system checkout.
+Use the [provider build instructions](sdk/logonomic_cli_addon_sdk/docs/sdk_tools.md#building-an-existing-provider)
+to build and test the package against a local SDK checkout. A replacement
+should keep the original package ID. Point a separate desktop profile at the
+parent of the assembled package and restart that profile to load it.
 
-```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLOGONOMIC_CLI_ADDON_SDK_SOURCE=/absolute/path/to/vnm_logonomic_cli_addon/sdk/logonomic_cli_addon_sdk
-cmake --build build --parallel 4
-ctest --test-dir build --output-on-failure
-```
+- **Change an existing integration.** The [Copilot worked example](sdk/logonomic_cli_addon_sdk/docs/provider_contribution.md)
+  follows a profile-selection fix from the provider source and regression test
+  through a disposable desktop profile and removal of the override.
+- **Add a CLI.** The [DeskTool walkthrough](sdk/logonomic_cli_addon_sdk/examples/desktool/README.md)
+  includes a sample command, its adapter and a complete package you can adapt.
+- **Change the shared SDK or a contract.** Locate the affected [contract](sdk/logonomic_cli_addon_sdk/docs/README.md)
+  and its [C++ interface](sdk/logonomic_cli_addon_sdk/include/logonomic_cli_addon/).
+  The [SDK build instructions](sdk/logonomic_cli_addon_sdk/docs/sdk_tools.md#building-the-sdk-tools)
+  include the library and its tests.
 
-Provider packages assemble under `build/package/<package-id>`. Use the [Linux runtime packaging prerequisites](sdk/logonomic_cli_addon_sdk/docs/package_contract.md#linux-native-runtime-deployment) on Linux. Providers using the [filesystem observer](sdk/logonomic_cli_addon_sdk/docs/filesystem_lifecycle_observer.md) have additional build inputs listed in their own README.
+Submit the implementation and a focused regression case to the owning
+repository. Maintainers select accepted provider revisions for official
+release, signing and desktop distribution. Local tests use the checked-out
+sources and need no signing or release credentials.
 
-To try a replacement, use the original package ID. Point a separate desktop profile's development root at the parent of the assembled directory, restart with that profile and scan for the launcher. The [Copilot worked example](sdk/logonomic_cli_addon_sdk/docs/provider_contribution.md) includes a disposable profile, exact test commands, and removal of the override. For a new integration, the [DeskTool example](sdk/logonomic_cli_addon_sdk/examples/desktool/README.md) includes the package, three launcher declarations and a marker command.
+## Working on the host
 
-Submit the implementation and a focused regression case to the repository that owns the behavior. Maintainers select accepted provider revisions for official release, signing and desktop distribution. Local tests use the checked-out sources and need no signing or release credentials.
+Within the shared host, the [request broker](host/src/logonomic_cli_addon_request_broker.h)
+admits requests against the running adapter's negotiated capabilities,
+enforces deadlines and retires the activation when cancellation grace
+expires. Callers that need invocation policy use the broker. The
+[generation client](host/src/logonomic_cli_addon_generation_client.h) owns the
+transport, handshake and message exchange for each activation.
+[Host build](README.md#build) · [Process contract](sdk/logonomic_cli_addon_sdk/docs/process_contract.md)

@@ -1,16 +1,5 @@
 # Conformance
 
-The `org.example.unknown-fixture-provider-usage-cache-acceptance` package
-advertises `usage-scan@3` and serves two pages from one sealed host allocation.
-The observation tests exercise its real adapter process, per-page profile
-acknowledgment enforcement, stable descriptor, and cache reopen validation.
-Usage-page codecs also check account versions, absent/null semantics and
-strict owned acknowledgment records against the host acknowledgment helpers.
-Cache codec/storage tests cover strict request
-selection, reset refusal of retained input, account binding, immutable sealing,
-reserved paths and corruption. These are protocol/storage gates, not native
-model qualification or proof of a production host's index publication.
-
 The conformance suite validates the package directory, checks supported
 declarations and starts the adapter under the SDK host simulator. Each
 `PASS` identifies the contract check that ran. Desktop integration also
@@ -115,6 +104,17 @@ No host adopts it; an adapter implements it to be probed. Operations:
 A malformed payload is answered `error`/`invalid_payload`.
 
 ## Fixture roster
+
+The `org.example.unknown-fixture-provider-usage-cache-acceptance` package
+advertises `usage-scan@3` and serves two pages from one sealed host allocation.
+The observation tests exercise its real adapter process, per-page profile
+acknowledgment enforcement, stable descriptor, and cache reopen validation.
+Usage-page codecs also check account versions, absent/null semantics and
+strict owned acknowledgment records against the host acknowledgment helpers.
+Cache codec/storage tests cover strict request
+selection, reset refusal of retained input, account binding, immutable sealing,
+reserved paths and corruption. These are protocol/storage gates, not native
+model qualification or proof of a production host's index publication.
 
 Every fixture package is built from one adapter binary,
 `unknown-fixture-adapter`, whose behaviour is selected by `--behavior <name>`

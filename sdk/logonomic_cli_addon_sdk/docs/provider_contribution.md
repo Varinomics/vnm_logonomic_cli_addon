@@ -17,14 +17,12 @@ and usage in `src/copilot_npm.cpp`, `src/copilot_accounts.cpp`,
 [provider change](https://github.com/Varinomics/vnm_logonomic_cli_copilot/commit/bc665640732bced77d5af62d88b32fa87b07e2ea)
 shows the matching test and implementation together.
 
-From the [provider checkout](https://github.com/Varinomics/vnm_logonomic_cli_copilot),
-install its documented build dependencies and point CMake at your SDK checkout.
-On Linux, include the [runtime packaging prerequisites](package_contract.md#linux-native-runtime-deployment).
+Build the [Copilot provider](https://github.com/Varinomics/vnm_logonomic_cli_copilot)
+against your SDK checkout using the [provider build instructions](sdk_tools.md#building-an-existing-provider).
+To run just the package and protocol tests for this change, run the following
+from the provider checkout.
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLOGONOMIC_CLI_ADDON_SDK_SOURCE=/absolute/path/to/sdk
-cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure \
   -R '^copilot_(package_validation|package_conformance|launcher_protocol|accounts_protocol|usage_protocol)$'
 ```

@@ -552,9 +552,8 @@ top-level build with `if(NOT LOGONOMIC_CLI_ADDON_EMBEDDED)`:
 targets from the same inputs either way; only the SDK it links is compiled by
 whichever build added it. Built on its own, and by an embedding build that
 compiles the SDK the same way, with one toolchain and reproducible links, a
-package has one generation digest. The README's "Proving an embedded build"
-runs that comparison for a package project, with `tests/embedded_host` as the
-embedding build.
+package has one generation digest. The [embedded build check](sdk_tools.md#proving-an-embedded-build)
+runs that comparison with `tests/embedded_host` as the embedding build.
 
 ## Reason-code vocabulary
 

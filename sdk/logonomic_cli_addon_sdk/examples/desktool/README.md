@@ -1,9 +1,17 @@
 # A native launcher add-on
 
-DeskTool is a small command that prints `DESKTOOL_READY`. Its Logonomic add-on
-discovers the executable on the supplied `PATH`, recognizes a saved Direct
-invocation and leaves its arguments, environment and working directory intact.
-You can run it without an account.
+This example builds two programs. The [`desktool` command](desktool.cpp)
+prints `DESKTOOL_READY`. The [adapter](adapter.cpp) answers Logonomic's
+discovery and preparation requests. It looks for the command on the supplied
+`PATH`, recognizes saved Direct invocations such as `desktool "two words"`
+and preserves their arguments, environment and working directory. By the
+end you'll be able to click **DeskTool** in a repository and see the command
+run in its terminal. You can use it without an account.
+
+The [CMake recipe](CMakeLists.txt) assembles the adapter and its
+[package declarations](package/). The [launcher test](tests/launcher.py)
+shows the messages a host sends for this example. For the complete
+architecture, see the [SDK guide](../../README.md).
 
 ## Build and check the package
 

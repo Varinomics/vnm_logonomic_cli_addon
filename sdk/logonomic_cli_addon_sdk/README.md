@@ -1,206 +1,95 @@
 # Logonomic CLI add-on SDK
 
-Use this SDK to connect a command-line tool to Logonomic. Start with the
-[DeskTool launcher](examples/desktool/README.md) to build a native adapter,
-exercise discovery and launch preparation, and try the package in a separate
-desktop profile. To change a shipped integration, follow the
-[provider contribution example](docs/provider_contribution.md).
+Use this SDK to connect a command-line tool to Logonomic, a desktop workspace
+for Git repositories, terminals and coding agents. Say you have a command called
+`desktool`. You want a user who has installed it to see **DeskTool** when
+scanning for launchers and to open it in a repository's terminal.
 
-The C++20 core builds with the standard library and platform facilities,
-independently of Qt and the desktop sources. It includes npm-generated Windows
-launcher templates and their ISC copyright and permission notice in
-[npm_node_shim.cpp](src/npm_node_shim.cpp). Preserve that notice when
-redistributing copies of that material.
+You write a small program called an **adapter** that knows how to find
+DeskTool and prepare its launch. You distribute it as an **add-on package**.
+Together these make up the DeskTool **provider**. The package declares the
+features it supports, such as launcher discovery. Each feature has a contract
+called a **capability**. When DeskTool changes, you can update the integration
+independently as long as it uses capabilities the desktop already understands.
 
-Providers that already use the maintained filesystem observation service can opt
-into the separate [filesystem lifecycle observer](docs/filesystem_lifecycle_observer.md)
-target. It shares correlation, cursor, queue and watch ownership while leaving
-native discovery and decoding in each provider. The core SDK target remains
-independent of Qt and the observer.
+## From a scan to a running CLI
 
-## What it contains
+1. **Logonomic finds the add-on.** At startup the desktop reads its package
+   directories. The DeskTool package tells Logonomic which executable is
+   the adapter and that it supports launcher discovery.
+2. **The adapter finds the CLI.** When the user scans for launchers,
+   Logonomic starts each eligible adapter as needed in a separate process.
+   It sends requests to the adapter's standard input and reads replies from
+   its standard output. DeskTool's adapter looks for `desktool` on the supplied
+   `PATH` and returns a candidate when it finds one. It can also recognize a saved
+   Direct launcher such as `desktool "two words"`. [Example adapter](examples/desktool/adapter.cpp)
+3. **Logonomic starts the command.** When the user opens a saved launcher in
+   a repository, the selected adapter can propose changes to the arguments and
+   environment. Logonomic validates the result and starts the CLI in the
+   user's terminal in the selected repository directory. DeskTool's adapter
+   requests no changes. The `desktool` command prints `DESKTOOL_READY`.
+   [Build and run DeskTool](examples/desktool/README.md)
 
-| Part | Location | Purpose |
-|---|---|---|
-| Normative documents | [docs/](docs/) | Package layout, process and core protocol, versioned capability contracts, resource limits and conformance checks |
-| Library | `include/logonomic_cli_addon/`, `src/` | identifiers, bounded JSON, SHA-256, bootstrap/index/sidecar parsing, package validation, generation digest, newline framing, protocol messages, capability codecs, process proposals, derived provider identity, the helper client, adapter runtime, host simulator, transcripts |
-| `logonomic_cli_addon_validate` | `tools/` | validates one package directory and prints its generation digest |
-| `logonomic_cli_addon_index` | `tools/` | writes a package's `package.files.json` |
-| `logonomic_cli_addon_stage` | `tools/` | assembles exact prebuilt package sets and verifies package evidence for offline payload assembly |
-| `logonomic_cli_addon_host_simulator` | `tools/` | drives an adapter with a transcript script and records the transcript |
-| `logonomic_cli_addon_conformance` | `tools/` | the black-box conformance suite over one package directory |
-| Fixture adapter and packages | `fixtures/` | the provider-unknown fixture adapter, the fixture package roster, and the transcript scripts shared with Logonomic's tests |
-| Tests | `tests/` | the SDK's own test executable and scripts, including the embedded-build comparison with its embedding host and fixture package project |
-
-## Building the SDK tools
-
-```sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 4
-ctest --test-dir build --output-on-failure
-```
-
-The same directory is consumed in-tree by `add_subdirectory`; the consuming
-project then registers `logonomic_cli_addon_sdk_tests` itself and calls
-`logonomic_cli_addon_sdk_add_fixture_packages(OUTPUT_DIRECTORY <dir> TARGET
-<name>)` to assemble the fixture packages where its tests expect them. The
-library target is `logonomic_cli_addon_sdk` with the alias
-`logonomic_cli_addon_sdk::sdk`.
-
-Source consumers also receive these package recipe functions:
-
-- `logonomic_cli_addon_add_package(target package_id out_directory ADAPTER
-  target ...)` assembles an adapter, its declared sidecars and package files,
-  and writes their integrity index. The [DeskTool project](examples/desktool/CMakeLists.txt)
-  shows the source layout and invocation. See [Linux native runtime deployment](docs/package_contract.md#linux-native-runtime-deployment)
-  for the Linux recipe's build prerequisites.
-- `logonomic_cli_addon_package_platform(out_platform)` requires CMake 3.25 when
-  invoked and proves a Windows/Linux x86_64 or macOS arm64 compiler target
-  using compile-only probes, including each generated configuration.
-  Unsupported or indeterminate targets fail configuration. The SDK's own CMake minimum remains unchanged.
-- `logonomic_cli_addon_package_directory(package_id out_directory)` returns
-  `<package build>/package/<id>` for a single-configuration generator, or
-  `<package build>/package/$<CONFIG>/<id>` for a multi-configuration generator,
-  where `<package build>` is the package project's `PROJECT_BINARY_DIR`.
-- `logonomic_cli_addon_package_indexer(out_command out_dependencies)` supplies
-  the package indexing command and its file dependencies, including optional
-  [production macOS signing](docs/package_contract.md#production-macos-signing)
-  before the first integrity index is written.
-- `logonomic_cli_addon_add_qt_package(target package_id out_directory ADAPTER
-  target ...)` assembles a QtCore-based package with its native runtime closure
-  and matching notices. Its inputs and standalone validation command are defined
-  in [QtCore package assembly](docs/package_contract.md#qtcore-package-assembly).
-- `logonomic_cli_addon_install_package(package_directory package_id [TARGET
-  assembly_target])` registers an [artifact export](docs/package_contract.md#exporting-a-package)
-  for standalone builds. In an embedded build it registers the assembly target.
-
-A package project also builds as a subproject of an embedding build that
-stages its packages itself; the switch, the registration and the guards an
-embeddable package needs are specified in `docs/package_contract.md`,
-"Embedded build".
-
-Stage the complete directory outside the active roots before replacing an
-installed package. Selection changes on desktop restart. See the
-[installation and update guide](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons).
-Provider recipes select their payload assembly and third-party index
-declarations; the shared recipe supplies the native runtime stages.
-
-## Validating a package
-
-```sh
-build/logonomic_cli_addon_validate /path/to/package
-```
-
-prints `OK <package_id> <generation digest> bytes=<n> declared: <capability@version>...`
-on success, or `FAIL <reason code> <detail>` naming the first defect. The
-reason codes are the shared vocabulary in `docs/package_contract.md`.
-
-## Staging prebuilt packages
-
-`logonomic_cli_addon_stage --output /payload/cli_addons --input artifacts.json
---evidence /payload/cli-addons.evidence.json` copies exactly the supplied
-prebuilt packages. It uses the SDK validator, preserves their generation
-digests and optional sidecars, and never compiles or executes package code.
-The output directory and evidence file must be absent; their parent
-directories must exist. Omitting `--input` stages zero packages.
-
-The input, receipt and read-only verification contracts are specified in
-[artifact_staging.md](docs/artifact_staging.md). Payload assemblers must finish
-staging before sealing their inventories or signing their own binaries.
+Providers for larger CLIs use the same arrangement. An adapter can tell
+Logonomic which account a launcher selects or how to resume a conversation.
+The CLI still controls sign-in and the conversation in the terminal. For an
+example from a shipped provider, see [how the Copilot add-on handles a
+different installation of the same CLI](docs/provider_contribution.md).
 
 ## Writing an adapter
 
-Choose C++20 or another language that can deliver a directly executable
-adapter for the target platform. The language-neutral contracts define the
-[package layout](docs/package_contract.md), [process environment](docs/process_contract.md)
-and [bounded UTF-8 JSON protocol](docs/core_protocol.md). Reserve stdout for
-LF-terminated frames and send diagnostics to stderr.
+**[Build the DeskTool launcher](examples/desktool/README.md)** for a complete
+first package. It includes the sample CLI, adapter, name and icon, package
+recipe and a test that exercises discovery, recognition and preparation.
 
-A valid package may declare zero capabilities. Each offered version adds an
-indexed sidecar. The generation digest identifies the package bytes, and the
-host supplies a nonce for the running generation. Install adapters from a
-source you trust to run native code with your account's access.
+The C++20 SDK links as `logonomic_cli_addon_sdk::sdk` and builds independently
+of Qt and the desktop sources. In C++, list your implemented capability and
+version pairs in `Adapter_runtime_options::capabilities` and register an
+invocation handler. Use the capability's codecs to decode requests and
+encode results. Handlers can run concurrently. Check cancellation during
+long operations and send one terminal result per invocation.
+[C++ adapter runtime](include/logonomic_cli_addon/adapter_runtime.h) ·
+[Launcher discovery types](include/logonomic_cli_addon/launcher_discovery.h) ·
+[Launch preparation types](include/logonomic_cli_addon/launch_preparation.h)
 
-In C++, link `logonomic_cli_addon_sdk::sdk`, list the implemented pairs in
-`Adapter_runtime_options::capabilities`, and dispatch by capability, version
-and operation. Each handler receives an `Invocation_context`. Handlers may run
-concurrently. Check cancellation during long operations and return one terminal
-result. Use the capability codecs for the request and result. The runtime's
-`write_raw` method and the fault-injection adapters under `fixtures/` are test
-facilities. See the [runtime API](include/logonomic_cli_addon/adapter_runtime.h).
+Authors using another language can supply a directly executable adapter that
+speaks the same protocol. Requests and responses are UTF-8 JSON frames
+terminated by a newline. Send diagnostics to stderr. A live operation
+requires agreement between the indexed capability declaration, the adapter's
+handshake and the target desktop's supported versions. Each capability
+defines its own prerequisites. Check the desktop's
+`cli-addon-core-compatibility.json` when choosing what to implement.
+[Package layout](docs/package_contract.md#package-layout-and-authority) ·
+[Process environment](docs/process_contract.md) · [Core protocol](docs/core_protocol.md)
 
-For a discoverable launcher with its own name and icon, declare and advertise
-[launcher-discovery@1](docs/launcher_discovery_1.md) (`discover`, `recognize`),
-[launch-preparation@3](docs/launch_preparation_3.md) (`prepare`) and
-[presentation@1](docs/presentation_1.md). Presentation has no operation.
-Both theme variants may name the same indexed asset. Use a reverse-domain
-package ID in a namespace you control for distribution.
-
-Check `cli-addon-core-compatibility.json` beside the target desktop executable
-for its supported package formats, protocol generations and exact capability
-versions. For an ordinary live pair, the indexed sidecar, adapter handshake
-and desktop adoption must agree. Capability-specific prerequisites still
-apply. A new product action needs a desktop consumer. Consult the
-[authority rules](docs/package_contract.md#package-layout-and-authority)
-and [protocol and package limits](docs/limits.md).
+Use a reverse-domain package ID in a namespace you control. A valid package
+can offer zero capabilities. Each capability version it does offer has its
+own indexed declaration file, called a sidecar. DeskTool has three sidecars.
+Discovery and launch preparation have callable operations. Presentation
+supplies the display name and icon as data, and both themes can use the same
+asset. An activated adapter runs native code with the user's account
+permissions. Install packages from a source you trust.
+[DeskTool package source](examples/desktool/package/) ·
+[Capability contracts](docs/README.md)
 
 ## Writing a helper
 
-A package's helpers - the processes its proposals launch and the hooks its
-CLI runs - talk to Logonomic only through the `vnmctl` executable named by
-`LOGONOMIC_VNMCTL_PATH`. `helper_client.h` is that client: it reads the bound
-terminal's environment, delivers provider events on the provider-event lane
-of `docs/helper_ingress_2.md`, and issues the session-control operations
-(`set-title`, title instruction, changed files, diff). It knows the wrapper's
-subcommands and exit codes and nothing of the control protocol, the endpoint or
-the token,
-and it links only this library.
+Some CLIs run hooks or need a helper to report events from a live terminal.
+The C++ helper client reads the session's environment and uses the
+`vnmctl` executable named by `LOGONOMIC_VNMCTL_PATH`. It can submit provider
+events or request session actions such as setting a title or showing a diff.
+The helper links only the SDK. The wrapper handles the connection to Logonomic.
+[C++ helper client](include/logonomic_cli_addon/helper_client.h) ·
+[Helper ingress](docs/helper_ingress_2.md)
 
-## Proving conformance
+## What it contains
 
-```sh
-build/logonomic_cli_addon_conformance /path/to/package
-```
-
-prints one `PASS`, `FAIL` or `SKIP` per check. Read the skipped checks to
-see which behavior still needs package-specific coverage. Drive the launcher
-through the simulator and check its actual candidate, recognition and prepared
-invocation. Exercise the installed command in the desktop profile for the
-end-to-end result. See the [checks and transcript format](docs/conformance.md).
-
-## Proving an embedded build
-
-```sh
-cmake -D PACKAGE_SOURCE=/path/to/package-project \
-      -D VALIDATE_TOOL=build/logonomic_cli_addon_validate \
-      -D TEST_ROOT=/path/to/scratch -D TEST_GENERATOR=Ninja \
-      -D TEST_PARALLEL_LEVEL=4 \
-      -P tests/embedded_package_tests.cmake
-```
-
-builds the package project on its own against this SDK, and as a subproject of
-`tests/embedded_host` with the embedded switch set, and proves the contract of
-`docs/package_contract.md`, "Embedded build": the standalone install exports
-the package; the embedded package registers once, in its own project's binary
-directory, changes no cache entry of the embedding build, adds none named
-`CMAKE_*`, `LOGONOMIC_*`, `BUILD_SHARED_LIBS` or `BUILD_TESTING`, leaves the
-build properties of the directory that added it unchanged, enables no testing
-there and installs nothing; and both builds produce the same generation
-digest, which the run prints with the cache entries the package added.
-`TEST_MAKE_PROGRAM`, `TEST_CXX_COMPILER` and `TEST_TOOLCHAIN_FILE` select the
-toolchain; on Windows, run it inside the MSVC developer environment or name
-one with `TEST_VCVARSALL` and `TEST_VCVARS_VERSION`. `VALIDATE_TOOL` is the
-validator built from this SDK.
-The run compiles and acquires no CPUs itself: its builds run one after the
-other with `TEST_PARALLEL_LEVEL` compile jobs each (default 1), so where builds
-are queued, it runs as one queue request for that many slots. The SDK's own
-CTest entry, `logonomic_cli_addon_embedded_package_tests`, declares its width as
-its `PROCESSORS` property.
-
-Both builds are Release, compiled locally and, with MSVC, linked with `/Brepro`,
-so that identical sources give identical bytes. MSVC derives the mangled names
-of anonymous-namespace types from the source path, so two separate runs give
-comparable digests only when the package and the SDK are at the same paths in
-both. `STANDALONE_ONLY=ON` builds only the standalone half, to record the
-digest of a package revision that cannot be embedded yet;
-`EXPECTED_GENERATION_DIGEST` then makes a later run require that digest.
+| If you want to… | Start here |
+| --- | --- |
+| Understand a feature or implement the wire contract | [Contract index](docs/README.md) |
+| Find a C++ type or its API comments | [Public headers](include/logonomic_cli_addon/) |
+| <a id="building-the-sdk-tools"></a>Build the SDK, its tools or a package project | [Build instructions and CMake recipes](docs/sdk_tools.md#building-the-sdk-tools) |
+| <a id="validating-a-package"></a>Check the contents of a package | [Run the package validator](docs/sdk_tools.md#validating-a-package) |
+| <a id="proving-conformance"></a>Exercise an adapter and inspect its transcript | [Conformance and simulator tools](docs/sdk_tools.md#proving-conformance) |
+| <a id="staging-prebuilt-packages"></a>Assemble a desktop payload from built packages | [Stage prebuilt packages](docs/sdk_tools.md#staging-prebuilt-packages) |
+| <a id="proving-an-embedded-build"></a>Verify the same package builds standalone and embedded | [Embedded build check](docs/sdk_tools.md#proving-an-embedded-build) |
