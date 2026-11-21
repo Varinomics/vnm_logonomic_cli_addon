@@ -1,11 +1,11 @@
 #include "logonomic_cli_addon_request_broker.h"
 #include "logonomic_cli_addon/ids.h"
 #include "logonomic_cli_addon/limits.h"
+#include "test_profile.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QEventLoop>
-#include <QTemporaryDir>
 #include <QTimer>
 
 #include <cstdio>
@@ -30,23 +30,23 @@ bool check(bool passed, const char* message)
 
 bool exercise(const QStringList& arguments)
 {
-    QTemporaryDir profile;
-    if (!check(profile.isValid(), "Could not allocate the fixture profile.")) {
+    host::tests::Test_profile profile;
+    if (!check(profile.directory.isValid(), "Could not allocate the fixture profile.")) {
         return false;
     }
     const QString ordinary = QStringLiteral("org.example.unknown-fixture");
     const QString hanging  = ordinary + QStringLiteral("-hang-on-invoke");
-    auto roots = host::Roots::defaults(profile.path(), {});
+    auto& roots = profile.roots;
 #ifdef Q_OS_WIN
     // A 255-character working directory fits CreateProcessW. Its sibling
     // .lock, the staged executable and the supervisor request need long paths.
-    const qsizetype padding = 255 - profile.path().size() - hanging.size() -
+    const qsizetype padding = 255 - profile.directory.path().size() - hanging.size() -
         (qsizetype)sdk::limits::k_max_generation_nonce_bytes - 3;
     if (!check(padding > 0, "The fixture profile must fit a Windows process working directory.")) {
         return false;
     }
-    roots.custody_root = profile.filePath(QString(padding, QChar(u'c')));
-    roots.scratch_root = profile.filePath(QString(padding, QChar(u's')));
+    roots.custody_root = profile.directory.filePath(QString(padding, QChar(u'c')));
+    roots.scratch_root = profile.directory.filePath(QString(padding, QChar(u's')));
 #endif
     if (!QDir().mkpath(roots.per_user_root)) {
         return check(false, "Could not create the package directory.");

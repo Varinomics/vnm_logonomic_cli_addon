@@ -2,11 +2,11 @@
 #include "logonomic_cli_addon_json_bridge.h"
 #include "logonomic_cli_addon/ids.h"
 #include "logonomic_cli_addon/launcher_discovery.h"
+#include "test_profile.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
-#include <QTemporaryDir>
 #include <QUuid>
 
 #ifdef Q_OS_WIN
@@ -55,12 +55,12 @@ int main(int argc, char** argv)
     if (!check(args.size() == 4, "expected a package root, custodian and supervisor")) {
         return 1;
     }
-    QTemporaryDir profile;
-    if (!check(profile.isValid(), "create isolated profile")) {
+    host::tests::Test_profile profile(args[1]);
+    if (!check(profile.directory.isValid(), "create isolated profile")) {
         return 1;
     }
 
-    const auto roots    = host::Roots::defaults(profile.path(), args[1]);
+    const auto& roots   = profile.roots;
     const auto platform = QString::fromLatin1(sdk::host_platform_id());
     const auto registry = host::Registry::discover(roots, {platform, {1}});
     const auto record   = registry->generation("org.example.unknown-fixture-provider-surfaces");
@@ -92,7 +92,7 @@ int main(int argc, char** argv)
         ok &= check(QFileInfo(scratch).isDir(), "active generation holds its scratch directory");
 
         const auto payload = sdk::encode_discover_request(
-            sdk::Json_value::object(), profile.path().toStdString(), sdk::host_platform_id());
+            sdk::Json_value::object(), profile.directory.path().toStdString(), sdk::host_platform_id());
         const auto sent = client.send_invoke(correlation, pair.capability_id, pair.version, "discover",
             logonomic_cli_addon_to_qjson(payload).toObject(), 5000);
         ok &= check(sent.sent, qPrintable(sent.message));
