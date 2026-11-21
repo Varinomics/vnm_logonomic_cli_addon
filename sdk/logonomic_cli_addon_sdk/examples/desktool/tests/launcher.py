@@ -45,8 +45,11 @@ def exercise(simulator, package, platform, command, working):
     steps.append({"op": "shutdown"})
     script = working / "script.json"
     script.write_text(json.dumps({"script_version": 1, "steps": steps}), encoding="utf-8")
-    transcript = subprocess.run([simulator, package, "--script", script], check=True,
-                                capture_output=True, encoding="utf-8").stdout
+    simulation = subprocess.run([simulator, package, "--script", script],
+                                stdout=subprocess.PIPE, encoding="utf-8")
+    transcript = simulation.stdout
+    print(transcript, end="", flush=True)
+    simulation.check_returncode()
     frames = [json.loads(line[2:]) for line in transcript.splitlines() if line.startswith("< ")]
     results = [frame for frame in frames if frame["type"] == "result"]
     check_equal(len(results), len(requests), transcript)

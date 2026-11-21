@@ -49,4 +49,12 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/launcher.py" "$<TARGET_FILE:logonomic_cli_addon_host_simulator>"
         "${desktool_package_directory}" "${desktool_platform}" "$<TARGET_FILE:desktool>")
     set_tests_properties(desktool_launcher PROPERTIES TIMEOUT 45)
+    add_test(NAME desktool_development_profile COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/development_profile.py")
+    add_custom_target(desktool_dev
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/develop.py" prepare
+            "${CMAKE_CTEST_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}" "${desktool_package_directory}"
+            "$<TARGET_FILE:desktool>" "--config=$<CONFIG>"
+        USES_TERMINAL VERBATIM)
+    add_dependencies(desktool_dev desktool_package desktool desktool_test_tools)
 endif()

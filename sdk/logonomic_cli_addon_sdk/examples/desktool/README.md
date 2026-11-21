@@ -22,8 +22,7 @@ On Linux, install the [runtime packaging prerequisites](../../docs/package_contr
 
 ```sh
 cmake -S examples/desktool -B build/desktool -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/desktool --parallel 4
-ctest --test-dir build/desktool --output-on-failure
+cmake --build build/desktool --parallel 4 --target desktool_dev
 ```
 
 For a copied example, configure its directory with
@@ -32,6 +31,14 @@ commands in an x64 compiler environment. On Varinomics workstations use the
 configured build queue for configure and build. The commands above use a
 single-configuration generator. Multi-configuration builds place the selected
 configuration below both `package/` and `bin/`.
+
+This target assembles the package, checks validation, conformance, launcher
+behavior and profile isolation, then prepares a new scratch profile under
+the build directory. It runs headlessly. The printed `checks.log` contains the
+validator result, individual conformance outcomes and the simulator's
+handshake, calls and replies. A failed check stops profile preparation and
+retains the log. For an ordinary test run in an existing build use
+`ctest --test-dir build/desktool --output-on-failure`.
 
 The command is in `build/desktool/bin`. The complete add-on is in
 `build/desktool/package/org.example.desktool`. The demo command lives outside
@@ -44,29 +51,37 @@ patch, and separately runs the native command.
 
 ## Launch it in Logonomic
 
-1. Put the absolute path of `build/desktool/bin` first on the `PATH` of the
-   shell that will start Logonomic. Run `desktool` in that shell and check for
-   `DESKTOOL_READY`.
-2. Choose an absolute directory for a separate profile. Create or edit
-   `settings/Varinomics/Logonomic.ini` inside it and set the package **parent**
-   directory, using forward slashes on Windows.
+The `desktool_dev` target prints a launch command for the new profile.
+Supply the path to the Logonomic executable you want to test.
+On Linux, run it from the SDK directory with your own paths.
 
-   ```ini
-   [cli_addons]
-   development_root=/absolute/path/to/build/desktool/package
-   ```
+```sh
+python3 examples/desktool/develop.py launch /absolute/path/to/desktool-dev-RUN /absolute/path/to/logonomic
+```
 
-3. Start your installed Logonomic from that shell with
-   `--user-data-dir <absolute-profile-directory>`. If that profile is open,
-   close it before restarting. In **Launcher Configurations**, select **Scan
-   for launchers** (or **Rescan**). Open a local Git repository in the profile.
-   Expand it in **Repositories** and click **DeskTool** under **LAUNCHERS**.
-   The terminal prints `DESKTOOL_READY`.
-4. After editing the package, build it again and restart that profile so the
-   host reads the new generation. To remove the override, clear
-   `development_root` and restart. For regular installation, copy the complete
-   package directory into the active profile's `cli-addons/packages/`.
-   [Installation and replacement](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons)
+On Windows use `python` and the path to `logonomic.exe`. On macOS use the
+executable inside the application's `Contents/MacOS` directory. The helper
+prepends the built DeskTool command to this desktop process's `PATH`, passes
+the scratch profile with `--user-data-dir` and records the desktop's stdout
+and stderr in the run's `desktop-output.log`.
+
+In **Launcher Configurations**, select **Scan for launchers** or **Rescan**.
+Open a local Git repository, expand it in **Repositories** and click
+**DeskTool** under **LAUNCHERS**. Its terminal prints `DESKTOOL_READY`.
+
+For another edit, close the desktop instance using that scratch profile,
+build `desktool_dev` again, then repeat the original launch command to keep
+your test settings. Use the newly printed profile when you want a clean
+start. The desktop reads replacement package bytes on restart. You can
+remove scratch run directories when you are finished with their profiles
+and logs.
+
+For a manually prepared profile, put the command's directory on `PATH` and
+set `cli_addons/development_root` in its `settings/Varinomics/Logonomic.ini`
+to the absolute **parent** of the assembled package. Use forward slashes on
+Windows. Clear the setting and restart that profile to remove its override.
+For regular installation, copy the package directory into the active
+profile's `cli-addons/packages/`. [Installation and replacement](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons)
 
 If the launcher is missing, run
 `build/desktool/sdk/logonomic_cli_addon_validate build/desktool/package/org.example.desktool`
