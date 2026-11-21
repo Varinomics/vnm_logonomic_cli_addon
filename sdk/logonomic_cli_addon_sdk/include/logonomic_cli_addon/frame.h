@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -61,6 +62,17 @@ private:
 /// Compact serialization plus the terminating newline: the bytes written to
 /// the transport for one message.
 std::string encode_frame(const Json_value& value);
+
+struct Frame_refusal
+{
+    const char* bound;
+    std::string detail;
+};
+
+/// Sets out_frame only if the complete request, including its newline, meets
+/// the negotiated receiver limits. Refused requests can be completed locally.
+std::optional<Frame_refusal> encode_request_frame(
+    const Json_value& value, const Json_parse_limits& limits, std::string& out_frame);
 
 /**
  * @brief Bounded tail of an adapter's stderr (docs/process_contract.md,

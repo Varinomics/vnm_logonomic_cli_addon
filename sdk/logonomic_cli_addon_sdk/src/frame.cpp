@@ -2,6 +2,8 @@
 #include "logonomic_cli_addon/ids.h"
 #include "logonomic_cli_addon/limits.h"
 
+#include <utility>
+
 namespace logonomic::cli_addon {
 
 const char* frame_violation_reason_code(Frame_violation violation)
@@ -96,6 +98,26 @@ std::string encode_frame(const Json_value& value)
     std::string frame = serialize_json(value);
     frame.push_back('\n');
     return frame;
+}
+
+std::optional<Frame_refusal> encode_request_frame(
+    const Json_value& value, const Json_parse_limits& limits, std::string& out_frame)
+{
+    std::string frame = encode_frame(value);
+    if (frame.size() > limits.max_bytes) {
+        return Frame_refusal{"bytes", "encoded frame of " + std::to_string(frame.size()) +
+            " bytes exceeds " + std::to_string(limits.max_bytes)};
+    }
+    const auto depth = json_depth(value);
+    if (depth > limits.max_depth) {
+        return Frame_refusal{"depth", "encoded frame depth " + std::to_string(depth) +
+            " exceeds " + std::to_string(limits.max_depth)};
+    }
+    if (!parse_json(frame, limits, nullptr)) {
+        return Frame_refusal{"json_bounds", "encoded request exceeds the negotiated JSON bounds"};
+    }
+    out_frame = std::move(frame);
+    return {};
 }
 
 Stderr_ring::Stderr_ring(std::size_t capacity)

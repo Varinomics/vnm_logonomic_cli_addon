@@ -324,6 +324,13 @@ if(LOGONOMIC_CLI_ADDON_SDK_BUILD_TESTS)
                     "-DFIXTURE_PACKAGES=${_logonomic_cli_addon_sdk_fixture_dir}"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/validate_cli_tests.cmake")
             set_tests_properties(logonomic_cli_addon_validate_cli_tests PROPERTIES TIMEOUT 30)
+            add_test(NAME logonomic_cli_addon_simulator_deadline_tests
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DSIMULATOR_TOOL=$<TARGET_FILE:logonomic_cli_addon_host_simulator>"
+                    "-DFIXTURE_PACKAGES=${_logonomic_cli_addon_sdk_fixture_dir}"
+                    "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/simulator_deadline_tests"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/simulator_deadline_tests.cmake")
+            set_tests_properties(logonomic_cli_addon_simulator_deadline_tests PROPERTIES TIMEOUT 60)
             add_test(NAME logonomic_cli_addon_stage_tests
                 COMMAND "${CMAKE_COMMAND}"
                     "-DSTAGE_TOOL=$<TARGET_FILE:logonomic_cli_addon_stage>"

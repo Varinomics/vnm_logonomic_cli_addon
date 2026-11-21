@@ -288,10 +288,14 @@ struct Host_simulator::Impl
     bool send(const Host_message& message)
     {
         const Json_value object = encode_host_message(message);
+        return send(object, encode_frame(object));
+    }
+
+    bool send(const Json_value& object, std::string frame)
+    {
         if (recorder != nullptr) {
             recorder->record_host_frame(object);
         }
-        std::string frame = encode_frame(object);
         if (stdin_queue_bytes + frame.size() > limits::k_max_stdin_queue_bytes) {
             event("violation", reason::k_stdin_queue_overflow);
             retire(reason::k_stdin_queue_overflow, "the bounded adapter-stdin queue is full");
@@ -876,16 +880,10 @@ std::string Host_simulator::invoke(
     }
 
     const Json_value object = encode_host_message(Host_message(request));
-    const std::string frame = encode_frame(object);
-    if (frame.size() > effective.max_frame_bytes) {
-        impl.event("payload_too_large", "bytes");
-        return impl.local_outcome(Host_status::FAILED, reason::k_payload_too_large,
-            "encoded frame of " + std::to_string(frame.size()) + " bytes exceeds " + std::to_string(effective.max_frame_bytes));
-    }
-    if (json_depth(object) > effective.max_json_depth) {
-        impl.event("payload_too_large", "depth");
-        return impl.local_outcome(Host_status::FAILED, reason::k_payload_too_large,
-            "encoded frame depth " + std::to_string(json_depth(object)) + " exceeds " + std::to_string(effective.max_json_depth));
+    std::string frame;
+    if (auto refusal = encode_request_frame(object, impl.parse_limits, frame)) {
+        impl.event("payload_too_large", refusal->bound);
+        return impl.local_outcome(Host_status::FAILED, reason::k_payload_too_large, std::move(refusal->detail));
     }
 
     ++impl.next_request;
@@ -897,7 +895,7 @@ std::string Host_simulator::invoke(
     pending.profile_storage = invocation.profile_storage;
     impl.pending.emplace(request.request_id, std::move(pending));
     impl.tracker->note_invoke_sent(request.request_id);
-    (void)impl.send(Host_message(request));
+    (void)impl.send(object, std::move(frame));
     return request.request_id;
 }
 
@@ -1042,7 +1040,10 @@ bool Host_simulator::run_script(const Json_value& script, std::string* out_error
             const std::optional<std::int64_t> capability_version = strict::integer_member(step, "version", 0, limits::k_max_version);
             const std::string* operation     = strict::string_member(step, "operation");
             const Json_value*  payload       = step.find("payload");
-            const std::optional<std::int64_t> deadline = strict::integer_member(step, "deadline_ms", 1, 3600000);
+            const auto deadline = strict::integer_member(step, "deadline_ms", 1, limits::k_no_invoke_deadline_ms);
+            if (step.find("deadline_ms") && !deadline) {
+                return fail("invoke deadline_ms must be a positive 32-bit integer");
+            }
             if (id == nullptr || capability_id == nullptr || !capability_version.has_value() || operation == nullptr) {
                 return fail("invoke step needs id, capability_id, version and operation");
             }

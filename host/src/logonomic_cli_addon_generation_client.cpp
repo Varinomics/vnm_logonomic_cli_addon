@@ -2219,28 +2219,11 @@ Send_outcome Generation_client::send_invoke(
     }
     request.deadline_ms = deadline_ms;
     const sdk::Json_value object = sdk::encode_host_message(sdk::Host_message(request));
-    const std::string frame      = sdk::encode_frame(object);
-    if (frame.size() > impl.effective_limits.max_frame_bytes) {
-        impl.record("payload_too_large", "bytes");
+    std::string frame;
+    if (const auto refusal = sdk::encode_request_frame(object, impl.parse_limits, frame)) {
+        impl.record("payload_too_large", refusal->bound);
         outcome.reason_code = QString::fromLatin1(reason::k_payload_too_large);
-        outcome.message     = QStringLiteral("encoded frame of %1 bytes exceeds %2")
-            .arg(frame.size())
-            .arg(impl.effective_limits.max_frame_bytes);
-        return outcome;
-    }
-    if (sdk::json_depth(object) > impl.effective_limits.max_json_depth) {
-        impl.record("payload_too_large", "depth");
-        outcome.reason_code = QString::fromLatin1(reason::k_payload_too_large);
-        outcome.message     = QStringLiteral("encoded frame depth %1 exceeds %2")
-            .arg(sdk::json_depth(object))
-            .arg(impl.effective_limits.max_json_depth);
-        return outcome;
-    }
-
-    if (!sdk::parse_json(frame, impl.parse_limits, nullptr)) {
-        impl.record("payload_too_large", "json_bounds");
-        outcome.reason_code = QString::fromLatin1(reason::k_payload_too_large);
-        outcome.message = QStringLiteral("encoded request exceeds the negotiated JSON bounds");
+        outcome.message     = QString::fromStdString(refusal->detail);
         return outcome;
     }
 

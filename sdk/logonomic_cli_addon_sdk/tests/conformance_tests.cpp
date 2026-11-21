@@ -1214,6 +1214,36 @@ bool test_fixture_positive_package()
     ok &= check(outcome_is(echo, addon::Host_status::SUCCESS) && echo->payload == payload, id, "echo: " + describe(echo));
 
     // Host-side dispositions that never reach the adapter.
+    const auto check_refusal = [&](addon::Json_value value) {
+        const auto request = session.invoke(k_probe, "echo", std::move(value), k_probe_deadline_ms);
+        ok &= check(outcome_is(session.outcome(request), addon::Host_status::FAILED, addon::reason::k_payload_too_large),
+            id, "the host refuses an unrepresentable request before transmission");
+    };
+    {
+        auto value = addon::Json_value::object();
+        std::string text(addon::limits::k_max_json_string_bytes, 'x');
+        value.set("text", addon::Json_value(text));
+        ok &= check(outcome_is(probe(session, "echo", value), addon::Host_status::SUCCESS),
+            id, "a string at the protocol limit makes the round trip");
+        text.push_back('x');
+        value.set("text", addon::Json_value(std::move(text)));
+        check_refusal(std::move(value));
+
+        auto members = addon::Json_value::object();
+        for (std::size_t i = 0; i < addon::limits::k_max_json_members; ++i) {
+            members.set(std::to_string(i), addon::Json_value(true));
+        }
+        ok &= check(outcome_is(probe(session, "echo", members), addon::Host_status::SUCCESS),
+            id, "an object at the protocol member limit makes the round trip");
+        members.set("extra", addon::Json_value(true));
+        check_refusal(std::move(members));
+
+        auto invalid_text = addon::Json_value::object();
+        invalid_text.set("text", addon::Json_value(std::string(1, (char)0xff)));
+        check_refusal(std::move(invalid_text));
+        ok &= check(outcome_is(probe(session, "echo", payload), addon::Host_status::SUCCESS),
+            id, "the adapter still answers after the local refusals");
+    }
     {
         const std::string unknown = session.invoke({"org.example.absent", 1}, "noop", addon::Json_value::object(), 1000);
         ok &= check(outcome_is(session.outcome(unknown), addon::Host_status::UNKNOWN_CAPABILITY, addon::reason::k_unknown_capability), id,
