@@ -202,7 +202,7 @@ public:
     {
         constexpr auto max_count = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
         if (completed > max_count || (total && (*total < completed || *total > max_count))) {
-            fail(Result_status::FAILED, "handler_invalid_progress");
+            fail(Result_status::FAILED, "handler_invalid_progress", {});
             return;
         }
         Progress_message progress;
@@ -278,7 +278,7 @@ public:
     void succeed(Json_value payload) override
     {
         if (!payload.is_object()) {
-            fail(Result_status::FAILED, "handler_invalid_result");
+            fail(Result_status::FAILED, "handler_invalid_result", {});
             return;
         }
         Result_message result;
@@ -498,7 +498,7 @@ public:
             handler(context);
         }
         catch (const std::invalid_argument&) {
-            context.fail(Result_status::FAILED, "handler_invalid_argument");
+            context.fail(Result_status::FAILED, "handler_invalid_argument", {});
         }
         catch (...) {
             // An unexpected exception gives no request-local recovery guarantee.

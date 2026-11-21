@@ -140,7 +140,7 @@ without one produces `error` with reason `handler_incomplete`.
 | Handler output or exception | Runtime outcome |
 | --- | --- |
 | `succeed` receives a non-object or an object that cannot encode as valid JSON | Request error with reason `handler_invalid_result` |
-| A result contains invalid UTF-8 | Request error with reason `invalid_utf8` |
+| A success payload contains invalid UTF-8 | Request error with reason `invalid_utf8` |
 | A result exceeds a negotiated frame or JSON resource limit | Request error with reason `payload_too_large` |
 | A progress count exceeds `INT64_MAX` or completed exceeds total | Request error with reason `handler_invalid_progress`. The runtime discards that progress report. |
 | `std::invalid_argument` escapes the invocation handler, including an SDK encoder rejecting its arguments | Request error with reason `handler_invalid_argument`. An already completed request keeps its result. |
