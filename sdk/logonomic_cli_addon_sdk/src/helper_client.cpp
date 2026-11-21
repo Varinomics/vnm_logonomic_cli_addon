@@ -174,7 +174,7 @@ Title_instruction_result invalid_title_instruction_arguments()
 Helper_local_diagnostic invalid_wrapper_response(std::size_t bytes)
 {
     return {Helper_local_failure::INVALID_RESPONSE,
-        "Wrapper returned " + std::to_string(bytes) + " bytes without a valid committed response."};
+        "Wrapper returned " + std::to_string(bytes) + " bytes inconsistent with its response contract."};
 }
 
 std::optional<Title_instruction_result> parse_title_instruction_result(
@@ -237,8 +237,9 @@ std::optional<Provider_event_outcome> parse_committed_outcome(std::string_view t
     parse_limits.max_bytes = limits::k_max_helper_client_stdout_bytes;
     Json_parse_error parse_error;
     const std::optional<Json_value> document = parse_json(text, parse_limits, &parse_error);
-    if (!document.has_value() || !document->is_object() ||
-        strict::unexpected_member(*document, {"accepted", "reason", "epoch", "helper_response"}).has_value())
+    // The control lane's admission and polling envelopes are never final outcomes.
+    if (!document.has_value() || !document->is_object() || document->find("kind") ||
+        document->find("status") || document->find("outcome"))
     {
         return std::nullopt;
     }
@@ -250,8 +251,14 @@ std::optional<Provider_event_outcome> parse_committed_outcome(std::string_view t
     outcome.committed = true;
     outcome.accepted  = accepted->as_boolean();
     outcome.exit_code = k_helper_exit_committed;
-    if (const Json_value* reason_value = document->find("reason"); reason_value != nullptr) {
-        if (!reason_value->is_string()) {
+    const Json_value* reason_value = document->find("reason");
+    if (outcome.accepted) {
+        if (reason_value) {
+            return std::nullopt;
+        }
+    }
+    else {
+        if (!reason_value || !reason_value->is_string() || reason_value->as_string().empty()) {
             return std::nullopt;
         }
         outcome.reason = reason_value->as_string();
@@ -439,12 +446,15 @@ Provider_event_outcome Helper_client::deliver_provider_event(Prepared_provider_e
     outcome.local_diagnostic = run.local_diagnostic;
     if (run.exit_code == k_helper_exit_committed) {
         if (auto parsed = parse_committed_outcome(run.stdout_bytes)) {
-            outcome = std::move(*parsed);
+            parsed->identity = std::move(delivery.identity);
+            return std::move(*parsed);
         }
-        else {
-            outcome.exit_code = k_helper_exit_transport_failure;
-            outcome.local_diagnostic = invalid_wrapper_response(run.stdout_bytes.size());
-        }
+    }
+    if (run.exit_code == k_helper_exit_committed ||
+        (run.exit_code == k_helper_exit_pending && !run.stdout_bytes.empty()))
+    {
+        outcome.exit_code = k_helper_exit_transport_failure;
+        outcome.local_diagnostic = invalid_wrapper_response(run.stdout_bytes.size());
     }
     outcome.identity = std::move(delivery.identity);
     return outcome;
@@ -466,6 +476,11 @@ int Helper_client::acknowledge_provider_event(
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
+    if ((run.exit_code == k_helper_exit_committed || run.exit_code == k_helper_exit_pending) &&
+        !run.stdout_bytes.empty())
+    {
+        return k_helper_exit_transport_failure;
+    }
     return run.exit_code;
 }
 

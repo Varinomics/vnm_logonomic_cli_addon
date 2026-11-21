@@ -730,6 +730,11 @@ int fake_provider_event_deliver(int argc, char** argv)
         std::strcmp(argv[2], "acknowledge") == 0)
     {
         if (std::strcmp(argv[3], "committed-key") == 0) return addon::k_helper_exit_committed;
+        if (std::strcmp(argv[3], "pending-key") == 0) return addon::k_helper_exit_pending;
+        if (std::strcmp(argv[3], "unknown-key") == 0) return addon::k_helper_exit_transport_failure;
+        if (std::strcmp(argv[3], "mixed-ack") == 0) {
+            return answer(R"({"status":"pending"})", addon::k_helper_exit_committed);
+        }
         if (!addon::is_valid_generation_nonce_hex(argv[3])) return addon::k_helper_exit_invalid_arguments;
         const auto journal = fs::temp_directory_path() / (std::string("logonomic-sdk-replay-") + argv[3]);
         return fs::remove(journal) ? addon::k_helper_exit_committed : addon::k_helper_exit_transport_failure;
@@ -792,7 +797,13 @@ int fake_provider_event_deliver(int argc, char** argv)
         return addon::k_helper_exit_transport_failure;
     }
     if (scenario == "Pending") {
-        return answer(R"({"status":"pending"})", addon::k_helper_exit_pending);
+        return addon::k_helper_exit_pending;
+    }
+    if (scenario == "CommittedReply" || scenario == "PendingReply") {
+        const auto* reply = event->find("body")->find("reply");
+        if (!reply || !reply->is_string()) return addon::k_helper_exit_invalid_arguments;
+        return answer(reply->as_string(),
+            scenario == "CommittedReply" ? addon::k_helper_exit_committed : addon::k_helper_exit_pending);
     }
     if (scenario == "Garbage") {
         std::fprintf(stderr, "private wrapper diagnostics should stay in the wrapper\n");
@@ -3079,9 +3090,11 @@ bool test_helper_client_contract()
     SDK_CHECK(replay.committed && replay.accepted && replay.epoch == 3 &&
         client.acknowledge_provider_event(replay.identity.idempotency_key) == addon::k_helper_exit_committed,
         "exact replay recovers the outcome and its original key releases the journal");
-    SDK_CHECK(client.acknowledge_provider_event("committed-key") ==
-        addon::k_helper_exit_committed,
-        "Helper_client must invoke the explicit provider-event acknowledgement");
+    SDK_CHECK(client.acknowledge_provider_event("committed-key") == addon::k_helper_exit_committed &&
+        client.acknowledge_provider_event("pending-key") == addon::k_helper_exit_pending &&
+        client.acknowledge_provider_event("unknown-key") == addon::k_helper_exit_transport_failure &&
+        client.acknowledge_provider_event("mixed-ack") == addon::k_helper_exit_transport_failure,
+        "acknowledgement conveys acknowledged, pending or unknown by exit status and prints no outcome");
     SDK_CHECK(client.acknowledge_provider_event("") ==
             addon::k_helper_exit_invalid_arguments &&
         client.acknowledge_provider_event(std::string(
@@ -3132,6 +3145,25 @@ bool test_helper_client_contract()
     SDK_CHECK(!pending.committed && pending.exit_code == addon::k_helper_exit_pending && !pending.local_diagnostic &&
         !rejected.local_diagnostic && !committed.local_diagnostic,
         "a delivery still pending at the deadline reports exit 4 uncommitted");
+    for (const auto& [scenario, reply] : std::vector<std::pair<const char*, const char*>>{
+        {"CommittedReply", R"({"accepted":true,"reason":"refused"})"},
+        {"CommittedReply", R"({"accepted":false})"},
+        {"CommittedReply", R"({"accepted":false,"reason":""})"},
+        {"CommittedReply", R"({"status":"pending"})"},
+        {"CommittedReply", R"({"accepted":true,"kind":"provider_event_admitted"})"},
+        {"PendingReply",   R"({"accepted":true})"},
+    }) {
+        const auto invalid = client.deliver_provider_event(scenario, object_with({{"reply", addon::Json_value(reply)}}), key, nonce);
+        SDK_CHECK(!invalid.committed && invalid.exit_code == addon::k_helper_exit_transport_failure &&
+            invalid.local_diagnostic && invalid.local_diagnostic->failure == addon::Helper_local_failure::INVALID_RESPONSE &&
+            invalid.identity.idempotency_key == key && invalid.identity.transition_nonce == nonce,
+            "an inconsistent wrapper reply leaves the delivery unresolved with its replay identity");
+    }
+    const auto future_refusal = client.deliver_provider_event("CommittedReply", object_with({
+        {"reply", addon::Json_value(R"({"accepted":false,"reason":"future_lane_reason","extra_outcome_field":5})")},
+    }));
+    SDK_CHECK(future_refusal.committed && !future_refusal.accepted && future_refusal.reason == "future_lane_reason" &&
+        !future_refusal.local_diagnostic, "additive outcome metadata and new refusal reasons preserve the host decision");
     const addon::Provider_event_outcome garbage = client.deliver_provider_event("Garbage", body);
     SDK_CHECK(!garbage.committed && garbage.exit_code == addon::k_helper_exit_transport_failure &&
         garbage.local_diagnostic && garbage.local_diagnostic->failure == addon::Helper_local_failure::INVALID_RESPONSE &&

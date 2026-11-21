@@ -158,8 +158,13 @@ before router dispatch. Exceeding the raw ceiling produces exit code 2 and no
 structured reason because the wrapper deliberately stops reading before it
 parses an outcome object.
 
-Exit codes: 0 committed (accepted or not; the JSON says which), 1 transport
-failure, 2 invalid arguments or environment, 4 still pending at the deadline.
+Exit codes: 0 committed (accepted or refused), 1 transport failure, 2 invalid
+arguments or environment, 4 still pending at the deadline. Exit 4 leaves
+stdout empty. On exit 0, an accepted outcome omits `reason` and a refusal
+includes a nonempty reason string. The SDK accepts additional outcome metadata
+and new refusal reasons. A control-lane admission or status envelope, a
+contradictory outcome or a pending exit with output leaves the delivery
+unresolved. The SDK reports `INVALID_RESPONSE` and returns its replay identity.
 
 A retry after a lost response reuses the same `idempotency_key` and
 `transition_nonce`. The helper is stateless across processes, so the replay
