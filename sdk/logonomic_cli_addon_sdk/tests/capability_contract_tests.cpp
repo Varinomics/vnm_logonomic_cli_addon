@@ -584,6 +584,10 @@ bool test_assets_import_and_storage_contracts()
         addon::decode_profile_storage_context(addon::profile_storage_member(context), &detail);
     SDK_CHECK(decoded_context.has_value() && decoded_context->root == context.root,
         "the extracted profile-storage codec must round-trip independently of the simulator");
+    auto extra_storage_field = addon::profile_storage_member(context);
+    extra_storage_field.set("label", addon::Json_value("cache"));
+    SDK_CHECK(!addon::decode_profile_storage_context(extra_storage_field, &detail) && !detail.empty(),
+        "an unknown profile-storage field must return a diagnostic when requested");
     const fs::path outside = base.parent_path() / (base.filename().string() + "-escape");
     const std::string escaping_id = "../" + outside.filename().string();
     SDK_CHECK(!addon::allocate_profile_storage_root(base, escaping_id, &error).has_value(),

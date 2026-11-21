@@ -773,8 +773,7 @@ std::optional<Usage_scan_page> decode_usage_scan_result(const Json_value& payloa
     page.scope                          = *decoded_scope;
     page.snapshot_id                    = snapshot->as_string();
     const auto* storage = payload.find(k_profile_storage_member);
-    std::string storage_detail;
-    page.profile_storage = storage ? decode_profile_storage_context(*storage, &storage_detail) : std::nullopt;
+    page.profile_storage = storage ? decode_profile_storage_context(*storage) : std::nullopt;
     if (!page.profile_storage || page.profile_storage->version != k_profile_storage_version) {
         fail(out_failure, "usage3 page requires a profile-storage acknowledgment");
         return std::nullopt;

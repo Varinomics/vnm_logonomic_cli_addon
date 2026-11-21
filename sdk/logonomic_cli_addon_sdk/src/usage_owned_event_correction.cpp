@@ -243,8 +243,7 @@ std::optional<Usage_owned_event_correction_request> decode_usage_owned_event_cor
         }
     }
     if (storage) {
-        std::string detail;
-        const auto outer = decode_profile_storage_context(*storage, &detail);
+        const auto outer = decode_profile_storage_context(*storage);
         const auto& nested = *decoded->context.profile_storage;
         if (!outer || outer->version != nested.version || outer->root != nested.root) {
             fail(out_failure, "owned event correction transport profile storage is invalid or differs from its scan");

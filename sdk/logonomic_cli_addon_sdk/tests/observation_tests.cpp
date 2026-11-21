@@ -918,6 +918,26 @@ bool test_usage_scan_contracts()
         const auto decoded_unchanged = addon::decode_usage_incremental_result(unchanged_wire, &failure);
         SDK_CHECK(decoded_unchanged && decoded_unchanged->baseline == *sealed && !decoded_unchanged->changes,
             "an unchanged result retains exact baseline identity without manufacturing a snapshot");
+        SDK_CHECK(decoded_unchanged->profile_storage && decoded_unchanged->profile_storage->root == profile,
+            "the unchanged result preserves the acknowledged profile root");
+        auto missing_storage = unchanged_wire;
+        missing_storage.erase(addon::k_profile_storage_member);
+        SDK_CHECK(!addon::decode_usage_incremental_result(missing_storage, nullptr),
+            "incremental results require a profile acknowledgment even when no diagnostic is requested");
+        auto with_label = addon::profile_storage_member(*unchanged.profile_storage);
+        with_label.set("label", addon::Json_value("cache"));
+        auto text_version = addon::profile_storage_member(*unchanged.profile_storage);
+        text_version.set("version", addon::Json_value("1"));
+        for (const auto& storage : {addon::Json_value(), addon::Json_value::object(), with_label, text_version,
+                                    addon::profile_storage_member({2, profile})})
+        {
+            auto invalid_result = unchanged_wire;
+            invalid_result.set(addon::k_profile_storage_member, storage);
+            failure = {};
+            SDK_CHECK(!addon::decode_usage_incremental_result(invalid_result, &failure) &&
+                failure.reason_code == "usage_incremental_invalid" && !failure.detail.empty(),
+                "incremental results reject an invalid profile acknowledgment with a contract failure");
+        }
         unchanged_wire.set("changes", addon::Json_value::object());
         SDK_CHECK(!addon::decode_usage_incremental_result(unchanged_wire, &failure),
             "a result cannot both retain and replace the accepted baseline");

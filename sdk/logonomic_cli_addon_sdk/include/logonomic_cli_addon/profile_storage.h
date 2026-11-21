@@ -60,11 +60,11 @@ std::optional<std::string> allocate_profile_storage_root(
 /// `{"version": <version>, "root": "<root>"}`.
 Json_value profile_storage_member(const Profile_storage_context& context);
 
-/// Strictly decodes that member. The failure detail is suitable for the
-/// enclosing capability's contract failure.
+/// Strictly decodes that member. When supplied, out_detail receives the
+/// diagnostic for the enclosing capability on failure.
 std::optional<Profile_storage_context> decode_profile_storage_context(
     const Json_value& value,
-    std::string*      out_detail);
+    std::string*      out_detail = nullptr);
 
 /// Handles a dispatched `profile-storage@1` / `acknowledge` invocation.
 /// Echoes the exact decoded context or fails with `profile_storage_mismatch`.

@@ -233,7 +233,9 @@ std::optional<Profile_storage_context> decode_profile_storage_context(
     std::string*      out_detail)
 {
     if (!value.is_object() || strict::unexpected_member(value, {"version", "root"}).has_value()) {
-        *out_detail = "profile_storage is not an object of version and root";
+        if (out_detail != nullptr) {
+            *out_detail = "profile_storage is not an object of version and root";
+        }
         return std::nullopt;
     }
     const std::optional<std::int64_t> version =
@@ -241,7 +243,9 @@ std::optional<Profile_storage_context> decode_profile_storage_context(
     const std::string* root = strict::string_member(value, "root");
     if (!version.has_value() || root == nullptr || root->empty() || root->find('\0') != std::string::npos ||
         !is_valid_utf8(*root)) {
-        *out_detail = "profile_storage version or root is missing, empty or mistyped";
+        if (out_detail != nullptr) {
+            *out_detail = "profile_storage version or root is missing, empty or mistyped";
+        }
         return std::nullopt;
     }
     return Profile_storage_context{(std::uint16_t)*version, *root};
@@ -270,8 +274,7 @@ void acknowledge_profile_storage(Invocation_context& context)
 {
     const Json_value& payload = context.request().payload;
     const Json_value* member  = payload.find(k_profile_storage_member);
-    std::string detail;
-    const auto storage = member ? decode_profile_storage_context(*member, &detail) : std::nullopt;
+    const auto storage = member ? decode_profile_storage_context(*member) : std::nullopt;
     if (!storage || !payload.is_object() || payload.as_object().size() != 1) {
         context.fail(Result_status::FAILED, reason::k_profile_storage_mismatch);
         return;

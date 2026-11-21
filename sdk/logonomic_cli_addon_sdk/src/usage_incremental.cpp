@@ -79,7 +79,7 @@ std::optional<Usage_incremental_result> decode_usage_incremental_result(
     if (!reference) return std::nullopt;
     Usage_incremental_result result{*reference, std::nullopt};
     const auto* storage = payload.find(k_profile_storage_member);
-    result.profile_storage = storage ? decode_profile_storage_context(*storage, nullptr) : std::nullopt;
+    result.profile_storage = storage ? decode_profile_storage_context(*storage) : std::nullopt;
     if (!result.profile_storage || result.profile_storage->version != k_profile_storage_version) {
         fail(out_failure, "incremental updates require a profile-storage acknowledgment");
         return std::nullopt;
