@@ -122,6 +122,10 @@ beside that desktop's executable. This command works offline.
 build/logonomic_cli_addon_validate /path/to/package --desktop /path/to/cli-addon-core-compatibility.json
 ```
 
+Offline inspection defaults to the machine's own platform because the desktop
+declaration omits the platform. To inspect a Linux x86-64 package from another
+platform, add `--platform linux-x86_64`.
+
 The JSON report identifies the supplied directory and validated generation,
 checks the target's bootstrap, index and core protocol versions, and lists each
 exact capability pair. `declared` comes from the package's indexed sidecars.
