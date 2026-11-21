@@ -1,0 +1,114 @@
+name: Standalone provider checks
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        description: Provider test prefix and package ID suffix
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  provider:
+    name: ${{ inputs.provider }} / ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, platform: linux-x86_64}
+          - {runner: windows-2025-vs2026, platform: windows-x86_64}
+          - {runner: macos-15, platform: macos-arm64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      PROVIDER: ${{ inputs.provider }}
+      PLATFORM: ${{ matrix.platform }}
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_GHA_VERSION: public-provider-1
+    steps:
+      - name: Preserve package bytes on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
+      - name: Check out the selected provider
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: provider
+          persist-credentials: false
+
+      - name: Check out the SDK that supplies this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: sdk-owner
+          persist-credentials: false
+
+      - name: Install Linux development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ninja-build libcurl4-openssl-dev libsqlite3-dev libunistring-dev patchelf binutils
+
+      - name: Select Xcode with C++20 stop tokens
+        if: runner.os == 'macOS'
+        run: sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Install MSVC v145 if missing on the Windows runner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer"
+          $instance = & "$installer/vswhere.exe" -latest -version '[18.0,19.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$instance) { throw 'Visual Studio 2026 x64 build tools are required.' }
+          if (!(Test-Path "$instance/VC/Tools/MSVC/14.51.*/bin/Hostx64/x64/cl.exe")) {
+            $arguments = @('modify', '--installPath', ('"{0}"' -f $instance), '--channelId', 'VisualStudio.18.Release',
+                           '--add', 'Microsoft.VisualStudio.Component.VC.14.51.x86.x64', '--quiet', '--norestart')
+            $setup = Start-Process "$installer/setup.exe" -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+            if ($setup.ExitCode -notin @(0, 3010)) { throw "MSVC setup exited with $($setup.ExitCode)." }
+          }
+
+      - name: Enable the native x64 Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+        with:
+          arch: x64
+          toolset: '14.51'
+
+      - name: Set up the compiler cache
+        uses: mozilla-actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+
+      - name: Prepare provider dependencies
+        if: hashFiles('provider/.github/scripts/prepare_ci.py') != ''
+        shell: pwsh
+        run: |
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python provider/.github/scripts/prepare_ci.py --workspace "$PWD" --platform "$env:PLATFORM" --output provider-configure.json
+
+      - name: Build, test and validate the installed package
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $sdk = (Resolve-Path sdk-owner/sdk/logonomic_cli_addon_sdk).Path
+          $arguments = @('-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', "-DLOGONOMIC_CLI_ADDON_SDK_SOURCE=$sdk",
+                         '-DLOGONOMIC_CLI_ADDON_RECIPE_TESTS=OFF', '-DCMAKE_C_COMPILER_LAUNCHER=sccache',
+                         '-DCMAKE_CXX_COMPILER_LAUNCHER=sccache')
+          if ($IsLinux) {
+            $arguments += '-DCMAKE_EXE_LINKER_FLAGS_RELEASE=-Wl,--strip-all'
+          } elseif ($IsMacOS) {
+            $sysroot = xcrun --show-sdk-path
+            $arguments += @('-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0', "-DCMAKE_OSX_SYSROOT=$sysroot",
+                            '-DCURL_NO_CURL_CMAKE=ON', "-DCURL_INCLUDE_DIR=$sysroot/usr/include", "-DCURL_LIBRARY=$sysroot/usr/lib/libcurl.tbd")
+          } elseif ($IsWindows) {
+            $arguments += @('-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_COMPILER=cl')
+          }
+          if (Test-Path provider-configure.json) { $arguments += Get-Content -Raw provider-configure.json | ConvertFrom-Json }
+          cmake -S provider -B build @arguments
+          cmake --build build --parallel 2
+          ctest --test-dir build -R "^$([regex]::Escape($env:PROVIDER))_" --no-tests=error --output-on-failure --parallel 2
+          cmake --install build --prefix "$PWD/exported"
+          & ./build/sdk/logonomic_cli_addon_validate "exported/logonomic.cli.$env:PROVIDER" --platform "$env:PLATFORM"

@@ -35,6 +35,18 @@ def git_revision(requested):
 
 
 class Preparation_tests(unittest.TestCase):
+    def test_public_dependency_fetch_uses_no_authorization_header(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            run, check_output = git_revision({})
+            with patch.object(PREPARE, "run", side_effect=run) as commands, \
+                    patch.object(PREPARE.subprocess, "check_output", side_effect=check_output):
+                sources = PREPARE.dependency_sources(Path(directory), "", None)
+            self.assertEqual(set(sources), set(OWNED))
+            fetches = [call for call in commands.call_args_list if "fetch" in call.args[0]]
+            self.assertEqual(len(fetches), len(OWNED))
+            for call in fetches:
+                self.assertEqual(call.kwargs["env"], {})
+
     def test_development_sources_follow_master_without_persisting_token(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -224,14 +236,14 @@ class Preparation_tests(unittest.TestCase):
             for name in ("libicuuc.so.73.2", "libicui18n.so.73.2"):
                 self.assertEqual((root / "notices" / (name + ".txt")).read_bytes(), license_bytes)
 
-    def run_main(self, root, arguments):
+    def run_main(self, root, arguments, token="private-read-token"):
         output = root / "arguments.json"
         github_path = root / "github-path"
         sources = {name: {"path": root / name, "repository": f"Varinomics/{name}",
                           "requested": EXACT[name], "revision": EXACT[name]} for name in OWNED}
         command = ["prepare_ci.py", "--workspace", str(root), "--output", str(output), *arguments]
         with patch.object(PREPARE.sys, "argv", command), \
-             patch.dict(os.environ, {"VARINOMICS_REPO_READ_TOKEN": "private-read-token",
+             patch.dict(os.environ, {"VARINOMICS_REPO_READ_TOKEN": token,
                                      "GITHUB_PATH": str(github_path)}), \
              patch.object(PREPARE, "dependency_sources", return_value=sources) as dependencies, \
              patch.object(PREPARE, "prepare_qt", return_value=(root / "qt", root / "qtbase")) as qt:
@@ -244,7 +256,8 @@ class Preparation_tests(unittest.TestCase):
     def test_callback_emits_source_overrides_and_qt_runtime_path(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            cmake_args, dependencies, qt = self.run_main(root, ["--platform", "macos-arm64"])
+            cmake_args, dependencies, qt = self.run_main(root, ["--platform", "macos-arm64"], token="")
+            self.assertEqual(dependencies.call_args.args[1], "")
             self.assertIn(f"-DOBSERVATION_OBSERVATION_SOURCE={(root / 'vnm_filesystem_observation').as_posix()}", cmake_args)
             self.assertIn(f"-DFETCHCONTENT_SOURCE_DIR_VNM_CMAKE={(root / 'vnm_cmake').as_posix()}", cmake_args)
             self.assertIn(f"-DOBSERVATION_QTBASE_SOURCE={(root / 'qtbase').as_posix()}", cmake_args)

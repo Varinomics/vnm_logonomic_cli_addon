@@ -60,11 +60,12 @@ def read_revisions(path):
 
 def dependency_sources(root, token, revisions):
     environment = os.environ.copy()
-    config_index = int(environment.get("GIT_CONFIG_COUNT", "0"))
-    authorization = base64.b64encode(("x-access-token:" + token).encode()).decode()
-    environment["GIT_CONFIG_COUNT"] = str(config_index + 1)
-    environment[f"GIT_CONFIG_KEY_{config_index}"] = "http.https://github.com/.extraheader"
-    environment[f"GIT_CONFIG_VALUE_{config_index}"] = "AUTHORIZATION: basic " + authorization
+    if token:
+        config_index = int(environment.get("GIT_CONFIG_COUNT", "0"))
+        authorization = base64.b64encode(("x-access-token:" + token).encode()).decode()
+        environment["GIT_CONFIG_COUNT"] = str(config_index + 1)
+        environment[f"GIT_CONFIG_KEY_{config_index}"] = "http.https://github.com/.extraheader"
+        environment[f"GIT_CONFIG_VALUE_{config_index}"] = "AUTHORIZATION: basic " + authorization
     sources = {}
     for repository in OWNED_DEPENDENCIES:
         source = root / repository
@@ -200,8 +201,6 @@ def main(provider, arguments=None):
         raise ValueError("--toolchain-root names the LLVM-MinGW installation of --toolchain llvm-mingw only")
     revisions = read_revisions(args.revisions) if args.revisions else None
     token = os.environ.pop("VARINOMICS_REPO_READ_TOKEN", "")
-    if not token:
-        raise RuntimeError("VARINOMICS_REPO_READ_TOKEN is required to read the provider observation dependencies")
     root = args.workspace.resolve() / ".ci-dependencies" / provider
     prefix_name = provider.upper()
     root.mkdir(parents=True, exist_ok=True)
