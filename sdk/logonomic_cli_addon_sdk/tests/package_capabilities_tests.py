@@ -118,6 +118,10 @@ def exercise(options, root, generated):
     expected[added.name] = added.read_bytes()
     assemble()
     verify(expected)
+    added.write_bytes(sidecar("fixture-added", "edited-after-addition"))
+    expected[added.name] = added.read_bytes()
+    assemble()
+    verify(expected)
     added.unlink()
     del expected[added.name]
     assemble()
@@ -139,10 +143,10 @@ def exercise(options, root, generated):
 
         assets = source / "package/assets"
         assets.mkdir()
-        asset = assets / "recipe.txt"
+        asset = assets / "OFF"
         asset.write_bytes(b"first authored asset")
         assemble()
-        if (package / "assets/recipe.txt").read_bytes() != asset.read_bytes():
+        if (package / "assets" / asset.name).read_bytes() != asset.read_bytes():
             raise AssertionError("Adding the first asset must update the indexed package")
         verify({})
     print(f"{'Generated' if generated else 'Default'} capability source and membership passed", flush=True)

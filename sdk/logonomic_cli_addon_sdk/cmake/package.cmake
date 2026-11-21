@@ -216,7 +216,11 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
     endif()
     set(package_files)
     set(copy_directories)
-    foreach(directory IN ITEMS assets capabilities provenance notices)
+    set(input_directories assets capabilities provenance notices)
+    set(input_command "${CMAKE_COMMAND}")
+    set(input_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package_inputs.cmake")
+    set(input_stamp "${CMAKE_CURRENT_BINARY_DIR}/package-inputs.txt")
+    foreach(directory IN LISTS input_directories)
         set(source "${CMAKE_CURRENT_SOURCE_DIR}/package/${directory}")
         if(directory STREQUAL "capabilities")
             set(source "${capabilities_directory}")
@@ -224,17 +228,29 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
         if((EXISTS "${source}" OR IS_SYMLINK "${source}") AND NOT IS_DIRECTORY "${source}")
             message(FATAL_ERROR "Expected a package input directory at ${source}")
         endif()
-        file(GLOB_RECURSE inputs CONFIGURE_DEPENDS "${source}/*")
-        if(inputs)
-            list(APPEND package_files ${inputs})
-            list(APPEND copy_directories COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${source}" "${package_directory}/${directory}")
+        if(CMAKE_GENERATOR STREQUAL "FASTBuild")
+            list(APPEND input_command "-Dsource_${directory}=${source}")
+        else()
+            file(GLOB_RECURSE inputs CONFIGURE_DEPENDS "${source}/*")
+            if(inputs)
+                list(APPEND package_files ${inputs})
+                list(APPEND copy_directories COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${source}" "${package_directory}/${directory}")
+            endif()
         endif()
     endforeach()
-    # Membership is an input too: deletions and additions with older timestamps
-    # rebuild the index, while file(GENERATE) preserves unchanged no-op builds.
-    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/package-inputs.txt"
-        CONTENT "${capabilities_directory}\n${package_files}\n")
+    if(CMAKE_GENERATOR STREQUAL "FASTBuild")
+        # CMake 4.4 can acknowledge a glob change without regenerating its
+        # FASTBuild graph. Check the selected files before evaluating the index.
+        add_custom_target(${target}_inputs
+            COMMAND ${input_command} "-Ddirectories=${input_directories}"
+                "-Dstamp=${input_stamp}" -P "${input_script}"
+            BYPRODUCTS "${input_stamp}"
+            VERBATIM)
+        list(APPEND package_index_dependencies "${input_script}")
+    else()
+        file(GENERATE OUTPUT "${input_stamp}" CONTENT "${capabilities_directory}\n${package_files}\n")
+    endif()
     add_custom_command(
         OUTPUT "${package_directory}/package.files.json"
         COMMAND "${CMAKE_COMMAND}" -E rm -rf "${package_directory}"
@@ -246,9 +262,14 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
         COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${ARG_ADAPTER}>"
             "${package_directory}/adapter/${ARG_ADAPTER}${CMAKE_EXECUTABLE_SUFFIX}"
         DEPENDS ${ARG_ADAPTER} ${ARG_HELPERS} logonomic_cli_addon_index
-            "${CMAKE_CURRENT_BINARY_DIR}/generated/logonomic-cli-addon.json" "${CMAKE_CURRENT_BINARY_DIR}/package-inputs.txt"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/logonomic-cli-addon.json" "${input_stamp}"
             ${package_files} ${package_index_dependencies}
         VERBATIM)
+    if(CMAKE_GENERATOR STREQUAL "FASTBuild")
+        add_custom_command(OUTPUT "${package_directory}/package.files.json" APPEND
+            COMMAND ${input_command} "-Ddirectories=${input_directories}"
+                "-Ddestination=${package_directory}" -P "${input_script}")
+    endif()
     foreach(helper IN LISTS ARG_HELPERS)
         add_custom_command(OUTPUT "${package_directory}/package.files.json" APPEND
             COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${helper}>"
@@ -261,6 +282,9 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
     add_custom_command(OUTPUT "${package_directory}/package.files.json" APPEND
         COMMAND ${package_index_command} "${package_directory}" ${ARG_INDEX_ARGUMENTS})
     add_custom_target(${target} ALL DEPENDS "${package_directory}/package.files.json")
+    if(CMAKE_GENERATOR STREQUAL "FASTBuild")
+        add_dependencies(${target} ${target}_inputs)
+    endif()
     logonomic_cli_addon_install_package("${package_directory}" "${package_id}" TARGET ${target})
     set(${out_directory} "${package_directory}" PARENT_SCOPE)
 endfunction()

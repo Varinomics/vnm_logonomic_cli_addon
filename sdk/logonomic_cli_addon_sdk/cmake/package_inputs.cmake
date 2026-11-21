@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.25)
+
+foreach(directory IN LISTS directories)
+    set(source "${source_${directory}}")
+    if((EXISTS "${source}" OR IS_SYMLINK "${source}") AND NOT IS_DIRECTORY "${source}")
+        message(FATAL_ERROR "Expected a package input directory at ${source}")
+    endif()
+    file(GLOB_RECURSE members FOLLOW_SYMLINKS LIST_DIRECTORIES FALSE RELATIVE "${source}" "${source}/*")
+    if("${members}" STREQUAL "")
+        continue()
+    endif()
+    if(DEFINED destination)
+        execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_directory "${source}" "${destination}/${directory}"
+            COMMAND_ERROR_IS_FATAL ANY)
+    else()
+        foreach(member IN LISTS members)
+            file(SHA256 "${source}/${member}" digest)
+            string(APPEND contents "${directory}/${member} ${digest}\n")
+        endforeach()
+    endif()
+endforeach()
+if(DEFINED stamp)
+    # Changes in names or bytes invalidate assembly, regardless of input mtime.
+    # file(CONFIGURE) preserves the stamp timestamp when its bytes are unchanged.
+    file(CONFIGURE OUTPUT "${stamp}" CONTENT "@contents@" @ONLY)
+endif()
