@@ -12,6 +12,7 @@
 // the supervisor as an I/O relay, with original-group settlement receipts.
 
 #include "logonomic_cli_addon_custodian_protocol.h"
+#include "logonomic_cli_addon_native_file_path.h"
 #include "logonomic_cli_addon_usage_writer_custody.h"
 #include "logonomic_cli_addon_path_entry.h"
 #include <vnm_process_custody/process_channel.h>
@@ -52,6 +53,7 @@ namespace reason   = logonomic::cli_addon::reason;
 namespace writers  = logonomic::cli_addon_host::usage_writer_custody;
 
 using Request_file = logonomic::cli_addon_host::Supervisor_request_file;
+using logonomic::cli_addon_host::native_file_path;
 
 void close_usage_writers(const std::string& generation)
 {
@@ -378,15 +380,13 @@ bool validate_start(const protocol::Start_request& in_start, Validated_start* ou
     }
 
     std::error_code error;
-    if (!fs::is_directory(out_validated->generation_directory, error)) {
+    if (!fs::is_directory(native_file_path(out_validated->generation_directory), error)) {
         return reject(reason::k_missing_file, "generation directory does not exist: " +
             sdk::path_to_utf8(out_validated->generation_directory));
     }
-    const fs::file_status adapter_status = fs::symlink_status(out_validated->adapter_executable, error);
-    if (logonomic::cli_addon_host::path_entry_is_link(
-            out_validated->adapter_executable,
-            adapter_status))
-    {
+    const auto adapter_file   = native_file_path(out_validated->adapter_executable);
+    const auto adapter_status = fs::symlink_status(adapter_file, error);
+    if (logonomic::cli_addon_host::path_entry_is_link(adapter_file, adapter_status)) {
         return reject(reason::k_link_entry, "adapter entry point is a link: " +
             sdk::path_to_utf8(out_validated->adapter_executable));
     }
@@ -394,11 +394,12 @@ bool validate_start(const protocol::Start_request& in_start, Validated_start* ou
         return reject(reason::k_missing_file, "adapter entry point is not a regular file: " +
             sdk::path_to_utf8(out_validated->adapter_executable));
     }
-    if (!fs::is_regular_file(fs::symlink_status(sdk::path_from_utf8(in_start.supervisor_executable), error))) {
+    const auto supervisor_file = native_file_path(sdk::path_from_utf8(in_start.supervisor_executable));
+    if (!fs::is_regular_file(fs::symlink_status(supervisor_file, error))) {
         return reject(reason::k_missing_file, "supervisor executable is not a regular file: " +
             in_start.supervisor_executable);
     }
-    if (!fs::is_directory(sdk::path_from_utf8(in_start.scratch_root), error)) {
+    if (!fs::is_directory(native_file_path(sdk::path_from_utf8(in_start.scratch_root)), error)) {
         return reject(reason::k_missing_file, "scratch_root is not a directory: " + in_start.scratch_root);
     }
 

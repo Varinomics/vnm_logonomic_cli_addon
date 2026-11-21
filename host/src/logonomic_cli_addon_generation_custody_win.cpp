@@ -1,4 +1,5 @@
 #include "logonomic_cli_addon_generation_custody_platform.h"
+#include "logonomic_cli_addon_native_file_path.h"
 
 #include "logonomic_cli_addon/package_source.h"
 
@@ -79,8 +80,9 @@ bool check_opened_kind(HANDLE handle, bool want_directory, const std::filesystem
 
 bool open_directory_no_follow(const std::filesystem::path& path, Native_handle& out_directory, std::string* out_error)
 {
+    const auto io_path = native_file_path(path);
     const HANDLE handle = ::CreateFileW(
-        path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        io_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
         return report(out_error, "cannot open directory " + describe(path) + ": " + last_error_text());
@@ -112,8 +114,9 @@ bool open_directory(
     if (no_follow) {
         return open_directory_no_follow(path, out_directory, out_error);
     }
+    const auto io_path = native_file_path(path);
     const HANDLE handle = ::CreateFileW(
-        path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        io_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
         return report(out_error, "cannot open directory " + describe(path) + ": " + last_error_text());
@@ -147,7 +150,8 @@ bool create_child_directory(
     std::string*         out_error)
 {
     const std::filesystem::path path = child_path(parent, name);
-    if (!::CreateDirectoryW(path.c_str(), nullptr) && ::GetLastError() != ERROR_ALREADY_EXISTS) {
+    const auto io_path = native_file_path(path);
+    if (!::CreateDirectoryW(io_path.c_str(), nullptr) && ::GetLastError() != ERROR_ALREADY_EXISTS) {
         return report(out_error, "cannot create directory " + describe(path) + ": " + last_error_text());
     }
     return true;
@@ -161,8 +165,9 @@ bool open_child_file_for_read(
     std::string*         out_error)
 {
     const std::filesystem::path path = child_path(parent, name);
+    const auto io_path = native_file_path(path);
     const HANDLE handle = ::CreateFileW(
-        path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        io_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
         return report(out_error, "cannot open " + describe(path) + ": " + last_error_text());
     }
@@ -186,8 +191,9 @@ bool create_child_file(
     std::string*         out_error)
 {
     const std::filesystem::path path = child_path(parent, name);
+    const auto io_path = native_file_path(path);
     const HANDLE handle = ::CreateFileW(
-        path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        io_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
         return report(out_error, "cannot create " + describe(path) + ": " + last_error_text());
     }
@@ -242,7 +248,9 @@ bool publish_file(
     const std::filesystem::path& destination,
     std::string*                 out_error)
 {
-    if (!::MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    const auto source_io      = native_file_path(source);
+    const auto destination_io = native_file_path(destination);
+    if (!::MoveFileExW(source_io.c_str(), destination_io.c_str(), MOVEFILE_WRITE_THROUGH)) {
         return report(out_error,
             "cannot publish " + describe(source) + " at " + describe(destination) + ": " + last_error_text());
     }
@@ -261,9 +269,10 @@ bool set_child_mode(
         return true;
     }
     const std::filesystem::path path = child_path(parent, name);
-    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    const auto io_path = native_file_path(path);
+    const DWORD attributes = ::GetFileAttributesW(io_path.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES ||
-        !::SetFileAttributesW(path.c_str(), attributes | FILE_ATTRIBUTE_READONLY))
+        !::SetFileAttributesW(io_path.c_str(), attributes | FILE_ATTRIBUTE_READONLY))
     {
         return report(out_error, "cannot make " + describe(path) + " read-only: " + last_error_text());
     }
@@ -279,7 +288,9 @@ bool publish_directory(
     // state is advisory, so the handle is released before the rename.
     const std::filesystem::path source = directory.path();
     directory.close();
-    if (!::MoveFileExW(source.c_str(), destination.c_str(), 0)) {
+    const auto source_io      = native_file_path(source);
+    const auto destination_io = native_file_path(destination);
+    if (!::MoveFileExW(source_io.c_str(), destination_io.c_str(), 0)) {
         return report(out_error,
             "cannot rename " + describe(source) + " to " + describe(destination) + ": " + last_error_text());
     }
@@ -301,8 +312,9 @@ Lock_outcome acquire_lock(
     bool                         create_if_missing,
     Lock_wait                    wait)
 {
+    const auto io_path = native_file_path(path);
     const HANDLE handle = ::CreateFileW(
-        path.c_str(), GENERIC_READ | GENERIC_WRITE,
+        io_path.c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, create_if_missing ? OPEN_ALWAYS : OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | (create_if_missing ? 0 : FILE_FLAG_OPEN_REPARSE_POINT), nullptr);

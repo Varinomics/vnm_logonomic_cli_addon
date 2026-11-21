@@ -1,5 +1,6 @@
 #include "logonomic_cli_addon_request_broker.h"
 #include "logonomic_cli_addon/ids.h"
+#include "logonomic_cli_addon/limits.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -36,6 +37,17 @@ bool exercise(const QStringList& arguments)
     const QString ordinary = QStringLiteral("org.example.unknown-fixture");
     const QString hanging  = ordinary + QStringLiteral("-hang-on-invoke");
     auto roots = host::Roots::defaults(profile.path(), {});
+#ifdef Q_OS_WIN
+    // A 255-character working directory fits CreateProcessW. Its sibling
+    // .lock, the staged executable and the supervisor request need long paths.
+    const qsizetype padding = 255 - profile.path().size() - hanging.size() -
+        (qsizetype)sdk::limits::k_max_generation_nonce_bytes - 3;
+    if (!check(padding > 0, "The fixture profile must fit a Windows process working directory.")) {
+        return false;
+    }
+    roots.custody_root = profile.filePath(QString(padding, QChar(u'c')));
+    roots.scratch_root = profile.filePath(QString(padding, QChar(u's')));
+#endif
     if (!QDir().mkpath(roots.per_user_root)) {
         return check(false, "Could not create the package directory.");
     }

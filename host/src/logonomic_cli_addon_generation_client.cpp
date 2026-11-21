@@ -4,6 +4,7 @@
 #include "logonomic_cli_addon_generation_custody.h"
 #include "logonomic_cli_addon_usage_writer_custody.h"
 #include "logonomic_cli_addon_json_bridge.h"
+#include "logonomic_cli_addon_native_file_path.h"
 #include "logonomic_cli_addon_path_entry.h"
 #include <vnm_process_custody/process_channel.h>
 #include <vnm_process_custody/process_clock.h>
@@ -146,13 +147,14 @@ bool real_directory_chain(
     fs::path current = in_root.lexically_normal();
     const auto inspect = [out_error](const fs::path& in_entry) {
         std::error_code status_error;
-        const fs::file_status entry_status = fs::symlink_status(in_entry, status_error);
+        const auto io_path      = native_file_path(in_entry);
+        const auto entry_status = fs::symlink_status(io_path, status_error);
         if (status_error) {
             *out_error = QStringLiteral("cannot inspect the created directory: %1")
                 .arg(QString::fromStdString(status_error.message()));
             return false;
         }
-        if (!fs::is_directory(entry_status) || path_entry_is_link(in_entry, entry_status)) {
+        if (!fs::is_directory(entry_status) || path_entry_is_link(io_path, entry_status)) {
             *out_error = QStringLiteral("the created path is not a real directory");
             return false;
         }
@@ -187,7 +189,7 @@ bool create_real_directory_below_root(
     QString         inspection_error;
     for (int attempt = 0; attempt < k_create_attempts; ++attempt) {
         create_error.clear();
-        (void)fs::create_directories(directory_path, create_error);
+        (void)fs::create_directories(native_file_path(directory_path), create_error);
         inspection_error.clear();
         if (real_directory_chain(root_path, directory_path, &inspection_error)) {
             return true;
