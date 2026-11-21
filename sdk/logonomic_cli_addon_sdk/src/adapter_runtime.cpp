@@ -4,6 +4,7 @@
 #include "logonomic_cli_addon/limits.h"
 #include "logonomic_cli_addon/version.h"
 #include "adapter_stdio.h"
+#include "strict_json.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -15,10 +16,12 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <future>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -48,23 +51,25 @@ void bound_utf8_diagnostic(std::string& text, std::size_t max_bytes)
     text.resize(end);
 }
 
-std::optional<std::string> checked_adapter_frame(
-    const Json_value&        message,
-    const Json_parse_limits& parse_limits)
+const char* encode_checked_frame(
+    const Json_value& message, const Json_parse_limits& limits, std::string& out_frame)
 {
-    // Reserve the terminator before checking the JSON body against the
-    // negotiated parser limits the host will apply to this frame.
-    std::string frame = serialize_json(message);
-    if (frame.size() >= parse_limits.max_bytes) {
-        return std::nullopt;
+    out_frame = serialize_json(message);
+    if (out_frame.size() >= limits.max_bytes) {
+        return reason::k_payload_too_large;
     }
-    Json_parse_limits bounded_limits = parse_limits;
-    --bounded_limits.max_bytes;
-    if (!parse_json(frame, bounded_limits, nullptr).has_value()) {
-        return std::nullopt;
+    Json_parse_limits body_limits = limits;
+    --body_limits.max_bytes;   // reserve the newline
+    strict::Parse_failure failure;
+    if (!strict::parse_document(out_frame, body_limits, failure, nullptr)) {
+        switch (failure) {
+            case strict::Parse_failure::LIMIT_EXCEEDED: return reason::k_payload_too_large;
+            case strict::Parse_failure::INVALID_UTF8:   return reason::k_invalid_utf8;
+            case strict::Parse_failure::INVALID_JSON:   return "handler_invalid_result";
+        }
     }
-    frame.push_back('\n');
-    return frame;
+    out_frame.push_back('\n');
+    return nullptr;
 }
 
 using Clock = std::chrono::steady_clock;
@@ -195,6 +200,11 @@ public:
     // negotiated with a peer retain their budget-aware spacing.
     void report_progress(std::uint64_t completed, std::optional<std::uint64_t> total, std::string note) override
     {
+        constexpr auto max_count = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+        if (completed > max_count || (total && (*total < completed || *total > max_count))) {
+            fail(Result_status::FAILED, "handler_invalid_progress");
+            return;
+        }
         Progress_message progress;
         progress.request_id = m_request.request_id;
         progress.completed  = completed;
@@ -267,10 +277,14 @@ public:
 
     void succeed(Json_value payload) override
     {
+        if (!payload.is_object()) {
+            fail(Result_status::FAILED, "handler_invalid_result");
+            return;
+        }
         Result_message result;
         result.request_id = m_request.request_id;
         result.status     = Result_status::SUCCESS;
-        result.payload    = payload.is_object() ? std::move(payload) : Json_value::object();
+        result.payload    = std::move(payload);
         finish(std::move(result));
     }
 
@@ -317,18 +331,14 @@ public:
 private:
     void finish(Result_message result)
     {
-        std::optional<std::string> frame = checked_adapter_frame(
-            encode_adapter_message(Adapter_message(std::move(result))), m_parse_limits);
-        if (!frame.has_value()) {
+        std::string frame;
+        const char* failure = encode_checked_frame(encode_adapter_message(Adapter_message(std::move(result))), m_parse_limits, frame);
+        if (failure) {
             Result_message fallback;
             fallback.request_id = m_request.request_id;
             fallback.status     = Result_status::FAILED;
-            fallback.reason     = reason::k_payload_too_large;
-            frame = checked_adapter_frame(
-                encode_adapter_message(Adapter_message(std::move(fallback))), m_parse_limits);
-        }
-        if (!frame.has_value()) {
-            return;
+            fallback.reason     = failure;
+            failure = encode_checked_frame(encode_adapter_message(Adapter_message(std::move(fallback))), m_parse_limits, frame);
         }
         const std::lock_guard<std::mutex> emit(m_emit_mutex);
         {
@@ -339,7 +349,11 @@ private:
             m_finished = true;
             m_held_progress.reset();
         }
-        m_writer.write_raw(*frame);
+        if (failure) {
+            stdio::write_stderr("logonomic-cli-addon runtime: The negotiated limits cannot carry a terminal error.\n");
+            abandon_process(EXIT_FAILURE);
+        }
+        m_writer.write_raw(frame);
     }
 
     // When the next frame may go out; called under m_mutex.
@@ -372,10 +386,9 @@ private:
         }
         m_last_progress_frame = now;
         lock.unlock();
-        const std::optional<std::string> frame = checked_adapter_frame(
-            encode_adapter_message(Adapter_message(std::move(progress))), m_parse_limits);
-        if (frame.has_value()) {
-            m_writer.write_raw(*frame);
+        std::string frame;
+        if (!encode_checked_frame(encode_adapter_message(Adapter_message(std::move(progress))), m_parse_limits, frame)) {
+            m_writer.write_raw(frame);
         }
     }
 
@@ -481,7 +494,18 @@ public:
         }
         m_thread.store(thread, std::memory_order_release);
 #endif
-        handler(context);
+        try {
+            handler(context);
+        }
+        catch (const std::invalid_argument&) {
+            context.fail(Result_status::FAILED, "handler_invalid_argument");
+        }
+        catch (...) {
+            // An unexpected exception gives no request-local recovery guarantee.
+            // Never expose its what() text or run other handlers on suspect state.
+            stdio::write_stderr("logonomic-cli-addon runtime: Unhandled exception in the invocation handler.\n");
+            abandon_process(EXIT_FAILURE);
+        }
         if (!context.finished()) {
             context.finish_incomplete();
         }

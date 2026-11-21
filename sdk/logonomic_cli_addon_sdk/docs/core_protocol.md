@@ -131,6 +131,28 @@ non-negative integer, `progress.total` is optional and not below `completed`,
     atomically retires the generation, fails its live requests and quarantines
     the package until the host restarts. There is no automatic restart.
 
+## C++ invocation handlers
+
+For an expected operational failure, call `context.fail(status, reason, message)` with
+a reason meaningful to the caller. The first terminal result wins. Returning
+without one produces `error` with reason `handler_incomplete`.
+
+| Handler output or exception | Runtime outcome |
+| --- | --- |
+| `succeed` receives a non-object or an object that cannot encode as valid JSON | Request error with reason `handler_invalid_result` |
+| A result contains invalid UTF-8 | Request error with reason `invalid_utf8` |
+| A result exceeds a negotiated frame or JSON resource limit | Request error with reason `payload_too_large` |
+| A progress count exceeds `INT64_MAX` or completed exceeds total | Request error with reason `handler_invalid_progress`. The runtime discards that progress report. |
+| `std::invalid_argument` escapes the invocation handler, including an SDK encoder rejecting its arguments | Request error with reason `handler_invalid_argument`. An already completed request keeps its result. |
+| Any other exception escapes the invocation handler | The adapter writes a fixed diagnostic to stderr and exits unsuccessfully. The host retires that activation and its outstanding requests. |
+
+Allow a validation exception to escape only when the handler has left shared
+state usable by the other requests. An adapter that needs to distinguish expected
+I/O or domain errors should handle those exceptions and call `fail`. The runtime
+omits exception text from results and diagnostics. If the negotiated limits
+cannot carry even the terminal error frame, the adapter reports that condition
+to stderr and exits unsuccessfully.
+
 ## Provider event failure diagnostics
 
 Provider event validators can carry a value-free diagnostic in the existing

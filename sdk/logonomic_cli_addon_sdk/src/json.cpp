@@ -1,5 +1,6 @@
 #include "logonomic_cli_addon/json.h"
 #include "decimal_parse.h"
+#include "strict_json.h"
 
 #include <algorithm>
 #include <charconv>
@@ -200,10 +201,11 @@ namespace {
 class Json_parser
 {
 public:
-    Json_parser(std::string_view text, const Json_parse_limits& limits)
+    Json_parser(std::string_view text, const Json_parse_limits& limits, strict::Parse_failure& failure)
     :
         m_text(text),
-        m_limits(limits)
+        m_limits(limits),
+        m_failure(failure)
     {}
 
     std::optional<Json_value> parse_document(Json_parse_error* out_error)
@@ -236,8 +238,10 @@ private:
         return std::nullopt;
     }
 
-    bool fail_bool(const char* message, Json_parse_error* out_error) const
+    bool fail_bool(const char* message, Json_parse_error* out_error,
+        strict::Parse_failure kind = strict::Parse_failure::INVALID_JSON) const
     {
+        m_failure = kind;
         fail(message, out_error);
         return false;
     }
@@ -305,7 +309,7 @@ private:
     bool parse_object(std::size_t depth, Json_value& out_value, Json_parse_error* out_error)
     {
         if (depth > m_limits.max_depth) {
-            return fail_bool("nesting depth exceeds the limit", out_error);
+            return fail_bool("nesting depth exceeds the limit", out_error, strict::Parse_failure::LIMIT_EXCEEDED);
         }
         ++m_offset;   // '{'
 
@@ -331,7 +335,7 @@ private:
                 return fail_bool("duplicate member name", out_error);
             }
             if (members.size() >= m_limits.max_members) {
-                return fail_bool("object member count exceeds the limit", out_error);
+                return fail_bool("object member count exceeds the limit", out_error, strict::Parse_failure::LIMIT_EXCEEDED);
             }
 
             skip_whitespace();
@@ -367,7 +371,7 @@ private:
     bool parse_array(std::size_t depth, Json_value& out_value, Json_parse_error* out_error)
     {
         if (depth > m_limits.max_depth) {
-            return fail_bool("nesting depth exceeds the limit", out_error);
+            return fail_bool("nesting depth exceeds the limit", out_error, strict::Parse_failure::LIMIT_EXCEEDED);
         }
         ++m_offset;   // '['
 
@@ -435,14 +439,14 @@ private:
                 return fail_bool("unterminated string", out_error);
             }
             if (out_text.size() > m_limits.max_string_bytes) {
-                return fail_bool("string length exceeds the limit", out_error);
+                return fail_bool("string length exceeds the limit", out_error, strict::Parse_failure::LIMIT_EXCEEDED);
             }
 
             const unsigned char c = peek();
             if (c == '"') {
                 ++m_offset;
                 if (out_text.size() > m_limits.max_string_bytes) {
-                    return fail_bool("string length exceeds the limit", out_error);
+                    return fail_bool("string length exceeds the limit", out_error, strict::Parse_failure::LIMIT_EXCEEDED);
                 }
                 return true;
             }
@@ -526,7 +530,7 @@ private:
                 m_text.size() - m_offset,
                 &scalar);
             if (length == 0) {
-                return fail_bool("invalid UTF-8 in string", out_error);
+                return fail_bool("invalid UTF-8 in string", out_error, strict::Parse_failure::INVALID_UTF8);
             }
             out_text.append(m_text.data() + m_offset, length);
             m_offset += length;
@@ -608,6 +612,7 @@ private:
 
     std::string_view         m_text;
     const Json_parse_limits& m_limits;
+    strict::Parse_failure&   m_failure;
     std::size_t              m_offset = 0;
 };
 
@@ -618,14 +623,23 @@ std::optional<Json_value> parse_json(
     const Json_parse_limits&  limits,
     Json_parse_error*         out_error)
 {
+    strict::Parse_failure failure;
+    return strict::parse_document(text, limits, failure, out_error);
+}
+
+std::optional<Json_value> strict::parse_document(
+    std::string_view text, const Json_parse_limits& limits, Parse_failure& out_failure, Json_parse_error* out_error)
+{
+    out_failure = Parse_failure::INVALID_JSON;
     if (text.size() > limits.max_bytes) {
+        out_failure = Parse_failure::LIMIT_EXCEEDED;
         if (out_error != nullptr) {
             out_error->offset  = limits.max_bytes;
             out_error->message = "document size exceeds the limit";
         }
         return std::nullopt;
     }
-    Json_parser parser(text, limits);
+    Json_parser parser(text, limits, out_failure);
     return parser.parse_document(out_error);
 }
 

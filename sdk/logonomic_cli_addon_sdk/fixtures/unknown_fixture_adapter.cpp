@@ -65,9 +65,11 @@
 #include <fstream>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -3490,6 +3492,36 @@ private:
                 std::fflush(stderr);
             }
             return;
+        }
+        if (operation == "scalar_success") {
+            context.succeed(addon::Json_value("scalar"));
+            return;
+        }
+        if (operation == "invalid_utf8_success") {
+            addon::Json_value payload = addon::Json_value::object();
+            payload.set("text", addon::Json_value(std::string("\xc3\x28", 2)));
+            context.succeed(std::move(payload));
+            return;
+        }
+        if (operation == "progress_above_total" || operation == "progress_count_overflow" ||
+            operation == "progress_total_overflow" || operation == "progress_maximum")
+        {
+            constexpr auto overflow = std::numeric_limits<std::uint64_t>::max();
+            constexpr auto maximum  = std::numeric_limits<std::int64_t>::max();
+            if (operation == "progress_above_total")    context.report_progress(2, 1);
+            if (operation == "progress_count_overflow") context.report_progress(overflow, std::nullopt);
+            if (operation == "progress_total_overflow") context.report_progress(1, overflow);
+            if (operation == "progress_maximum")        context.report_progress(maximum, maximum);
+            context.succeed(addon::Json_value::object());
+            return;
+        }
+        if (operation == "invalid_launch_patch" || operation == "invalid_patch_after_success") {
+            if (operation == "invalid_patch_after_success") context.succeed(addon::Json_value::object());
+            context.succeed(addon::encode_launch_patch(addon::Launch_patch{}, 3));
+            return;
+        }
+        if (operation == "handler_runtime_error") {
+            throw std::runtime_error("fixture private exception text");
         }
         if (operation == "oversize_success") {
             addon::Json_value payload = addon::Json_value::object();

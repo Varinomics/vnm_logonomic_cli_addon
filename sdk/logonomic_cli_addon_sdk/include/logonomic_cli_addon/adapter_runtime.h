@@ -19,7 +19,10 @@ namespace logonomic::cli_addon {
  * runs on a thread of its own, reports progress through the context and
  * ends the request with exactly one terminal result; a second terminal call
  * is ignored, and a handler that returns without one is answered with
- * `error`/`handler_incomplete` by the runtime.
+ * `error`/`handler_incomplete` by the runtime. Report recoverable operation
+ * failures with fail(). An escaping std::invalid_argument signals a
+ * request-local validation failure. Any other escaping exception ends the
+ * adapter process. See docs/core_protocol.md, "C++ invocation handlers".
  */
 class Invocation_context
 {
@@ -37,6 +40,8 @@ public:
     /// wait ended because cancellation was requested.
     virtual bool wait_for_cancel(int timeout_ms) = 0;
 
+    /// Counts must fit int64_t, with completed <= total when present.
+    /// Invalid counts finish this request with handler_invalid_progress.
     /// Reports progress throughout the request. After an initial burst, frames
     /// are spaced at least 10 ms apart; a newer pending report replaces the
     /// previous one. A held report is flushed even when its handler falls
@@ -47,6 +52,7 @@ public:
         std::optional<std::uint64_t> total,
         std::string                  note = {}) = 0;
 
+    /// Success requires a JSON object. Invalid output receives an error result.
     virtual void succeed(Json_value payload) = 0;
     virtual void fail(Result_status status, std::string reason, std::string message = {}) = 0;
 

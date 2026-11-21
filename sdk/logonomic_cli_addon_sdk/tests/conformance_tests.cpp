@@ -19,8 +19,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -1630,12 +1632,69 @@ bool test_fixture_behavior_variants()
             "second result retires the generation");
     }
 
+    const auto start_waiting_request = [](addon::Host_simulator& session) {
+        addon::Json_value payload = addon::Json_value::object();
+        payload.set("count", addon::Json_value(1));
+        payload.set("interval_ms", addon::Json_value(0));
+        const auto request = session.invoke(k_probe, "progress_then_wait", std::move(payload), 30000);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(k_probe_deadline_ms);
+        while (session.progress_count(request) == 0 && std::chrono::steady_clock::now() < deadline) {
+            session.pump(10);
+        }
+        return request;
+    };
+    {
+        addon::Host_simulator session(options_for(""), nullptr);
+        SDK_CHECK(session.start(&failure), "handler exception fixture starts");
+        const auto other = start_waiting_request(session);
+        SDK_CHECK(session.progress_count(other) == 1, "a concurrent request is active");
+        const auto fatal = probe(session, "handler_runtime_error", addon::Json_value::object());
+        ok &= check(outcome_is(fatal, addon::Host_status::GENERATION_RETIRED, addon::reason::k_adapter_exited) &&
+            outcome_is(session.wait_outcome(other, k_probe_deadline_ms), addon::Host_status::GENERATION_RETIRED,
+                addon::reason::k_adapter_exited), id, "unexpected handler exception retires both outstanding operations");
+        session.shutdown(1000, nullptr);   // drain remaining stderr
+        ok &= check(session.exit_code() == EXIT_FAILURE &&
+            session.stderr_text().find("Unhandled exception in the invocation handler") != std::string::npos &&
+            session.stderr_text().find("fixture private exception text") == std::string::npos,
+            id, "unexpected exception produces a fixed diagnostic and a failing process exit");
+    }
+
     // The runtime turns an unsendable terminal payload into this request's
     // bounded error result; it never emits a malformed frame that retires the
     // generation. Diagnostic clipping preserves valid UTF-8 by scalar.
     {
         addon::Host_simulator session(options_for(""), nullptr);
         SDK_CHECK(session.start(&failure), "egress checks fixture starts: " + failure.reason_code);
+        const auto other = start_waiting_request(session);
+        SDK_CHECK(session.progress_count(other) == 1, "a concurrent request is active");
+        const struct { const char* operation; const char* reason; } invalid_calls[] = {
+            {"scalar_success",          "handler_invalid_result"},
+            {"invalid_utf8_success",    addon::reason::k_invalid_utf8},
+            {"progress_above_total",    "handler_invalid_progress"},
+            {"progress_count_overflow", "handler_invalid_progress"},
+            {"progress_total_overflow", "handler_invalid_progress"},
+            {"invalid_launch_patch",    "handler_invalid_argument"},
+        };
+        for (const auto& call : invalid_calls) {
+            const auto request = session.invoke(k_probe, call.operation, addon::Json_value::object(), k_probe_deadline_ms);
+            const auto rejected = session.wait_outcome(request, k_probe_deadline_ms);
+            ok &= check(outcome_is(rejected, addon::Host_status::FAILED, call.reason) &&
+                session.progress_count(request) == 0, id, std::string(call.operation) + ": " + describe(rejected));
+            ok &= check(outcome_is(probe(session, "echo", addon::Json_value::object()), addon::Host_status::SUCCESS),
+                id, std::string("subsequent invoke after ") + call.operation);
+        }
+        const auto boundary = session.invoke(k_probe, "progress_maximum", addon::Json_value::object(), k_probe_deadline_ms);
+        const auto accepted = session.wait_outcome(boundary, k_probe_deadline_ms);
+        const auto progress_at_limit = session.progress(boundary);
+        constexpr auto maximum = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+        ok &= check(outcome_is(accepted, addon::Host_status::SUCCESS) && progress_at_limit.size() == 1 &&
+            progress_at_limit.front().completed == maximum && progress_at_limit.front().total == maximum,
+            id, "largest representable progress count and total cross the wire");
+        ok &= check(outcome_is(probe(session, "invalid_patch_after_success", addon::Json_value::object()),
+            addon::Host_status::SUCCESS), id, "a validation exception after success preserves the first result");
+        session.cancel(other);
+        ok &= check(outcome_is(session.wait_outcome(other, k_probe_deadline_ms), addon::Host_status::CANCELLED), id,
+            "a concurrent request remains usable across handler validation failures");
         const std::optional<addon::Host_outcome> oversized =
             probe(session, "oversize_success", addon::Json_value::object());
         ok &= check(outcome_is(oversized, addon::Host_status::FAILED, addon::reason::k_payload_too_large), id,

@@ -16,6 +16,12 @@
 
 namespace logonomic::cli_addon::strict {
 
+// The runtime needs to distinguish invalid handler output from valid output
+// exceeding negotiated resource limits. The public parser uses this same path.
+enum class Parse_failure { INVALID_JSON, INVALID_UTF8, LIMIT_EXCEEDED };
+std::optional<Json_value> parse_document(
+    std::string_view text, const Json_parse_limits& limits, Parse_failure& out_failure, Json_parse_error* out_detail);
+
 /// Name of the first member that is not in the allowed set, or nullopt.
 std::optional<std::string> unexpected_member(
     const Json_value&                       object,
