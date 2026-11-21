@@ -109,6 +109,7 @@ No match is exactly `{"recognized": false}`. A match is:
 
 The warning is optional; its code follows the reason-code grammar and its
 message is control-free and at most 1024 bytes. Evidence follows the discover
-bound. Across packages, exactly one recognized result selects a package;
-multiple matches are `recognition_ambiguous` and are surfaced for user choice,
-never resolved by order, name or package version.
+bound. Across packages, exactly one recognized result selects a package.
+Multiple matches produce `recognition_ambiguous` and leave the package
+unselected. The consuming host owns any subsequent user choice. Package
+order, name and version cannot break the tie.

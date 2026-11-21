@@ -14,7 +14,7 @@ cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
-Use `-DLOGONOMIC_CLI_ADDON_BUILD_HOST=ON` to include the native host. It also needs Qt Core and access to [vnm_process_custody](https://github.com/Varinomics/vnm_process_custody). The [process contract](sdk/logonomic_cli_addon_sdk/docs/process_contract.md) describes how the host starts adapters.
+Use `-DLOGONOMIC_CLI_ADDON_BUILD_HOST=ON` to include the native host. It also needs CMake 3.22 or newer, Qt 6.12 Core, [vnm_process_custody](https://github.com/Varinomics/vnm_process_custody) and [vnm_qt_dispatch](https://github.com/Varinomics/vnm_qt_dispatch). The [process contract](sdk/logonomic_cli_addon_sdk/docs/process_contract.md) describes how the host starts adapters.
 
 ## Match a desktop release
 
