@@ -5,6 +5,7 @@
 // and detail of the first failure. Exit code 0 on success, 1 on failure,
 // 2 on usage errors.
 
+#include "desktop_inspection.h"
 #include "tool_arguments.h"
 
 #include "logonomic_cli_addon/ids.h"
@@ -22,7 +23,8 @@ namespace addon = logonomic::cli_addon;
 int usage()
 {
     std::fprintf(stderr,
-        "usage: logonomic_cli_addon_validate <package-dir> [--platform <id>] [--core-generation <n>]...\n");
+        "usage: logonomic_cli_addon_validate <package-dir> [--platform <id>] "
+        "[--core-generation <n> ... | --desktop <compatibility.json> [--live]]\n");
     return 2;
 }
 
@@ -31,6 +33,8 @@ int usage()
 int run(int argc, char** argv)
 {
     std::string directory;
+    std::string desktop;
+    bool live = false;
     addon::Validation_options options;
     bool generations_given = false;
 
@@ -38,6 +42,17 @@ int run(int argc, char** argv)
         const std::string argument = argv[i];
         if (argument == "--platform" && i + 1 < argc) {
             options.platform_id = argv[++i];
+        }
+        else
+        if (argument == "--desktop" && i + 1 < argc && desktop.empty()) {
+            desktop = argv[++i];
+            if (desktop.empty()) {
+                return usage();
+            }
+        }
+        else
+        if (argument == "--live" && !live) {
+            live = true;
         }
         else
         if (argument == "--core-generation" && i + 1 < argc) {
@@ -68,6 +83,12 @@ int run(int argc, char** argv)
     }
     if (directory.empty() || !addon::is_valid_platform_id(options.platform_id)) {
         return usage();
+    }
+    if ((live && desktop.empty()) || (!desktop.empty() && generations_given)) {
+        return usage();
+    }
+    if (!desktop.empty()) {
+        return addon::tools::inspect_desktop(directory, desktop, options.platform_id, live);
     }
 
     addon::Directory_package_source source(addon::path_from_utf8(directory));

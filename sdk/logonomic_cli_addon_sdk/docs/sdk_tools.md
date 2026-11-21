@@ -115,6 +115,35 @@ The validator prints `OK <package_id> <generation digest> bytes=<n> declared: <c
 on success, or `FAIL <reason code> <detail>` naming the first defect. The
 reason codes are the shared vocabulary in the [package contract](package_contract.md#reason-code-vocabulary).
 
+To compare a package with a particular desktop, pass the compatibility file
+beside that desktop's executable. This command works offline.
+
+```sh
+build/logonomic_cli_addon_validate /path/to/package --desktop /path/to/cli-addon-core-compatibility.json
+```
+
+The JSON report identifies the supplied directory and validated generation,
+checks the target's bootstrap, index and core protocol versions, and lists each
+exact capability pair. `declared` comes from the package's indexed sidecars.
+`adopted` comes from the target file. Add `--live` on the adapter's native
+platform to start the adapter in the SDK simulator and record its fresh
+`advertised` pairs. An unobserved handshake leaves that field `null`. The
+simulator sends no feature invocations.
+
+`role` identifies the static coordination-delivery and account-profile
+binding contracts. The latter omits its own handshake entry and names the
+managed-configuration version it requires alongside accounts@2. A
+`contract_issue` identifies a problem the inspector can establish from a
+known SDK contract, the supplied sidecars, the target's adopted pairs, and
+any observed advertisement. Other desktop declaration checks, external
+prerequisites and installation precedence require the actual desktop. Run the
+package's feature tests to establish behavior.
+
+Exit status 0 means the inspection completed with compatible package formats,
+including the handshake when requested. Individual capability differences
+remain in the report. Status 1 identifies a declaration, package, target format
+or activation failure. Status 2 indicates invalid command arguments.
+
 ## Staging prebuilt packages
 
 `logonomic_cli_addon_stage --output /payload/cli_addons --input artifacts.json

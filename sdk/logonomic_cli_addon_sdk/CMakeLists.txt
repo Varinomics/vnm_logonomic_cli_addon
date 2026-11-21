@@ -156,6 +156,7 @@ foreach(_tool IN ITEMS validate index host_simulator conformance stage)
         target_link_options(logonomic_cli_addon_${_tool} PRIVATE -municode)
     endif()
 endforeach()
+target_sources(logonomic_cli_addon_validate PRIVATE tools/desktop_inspection.cpp)
 target_include_directories(logonomic_cli_addon_stage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 add_executable(logonomic_cli_addon_unknown_fixture_adapter fixtures/unknown_fixture_adapter.cpp)
