@@ -1214,6 +1214,11 @@ bool test_fixture_positive_package()
     payload.set("marker", addon::Json_value("positive"));
     const std::optional<addon::Host_outcome> echo = probe(session, "echo", payload);
     ok &= check(outcome_is(echo, addon::Host_status::SUCCESS) && echo->payload == payload, id, "echo: " + describe(echo));
+    const auto defaulted = session.invoke(k_probe, "echo", payload, 0);
+    const auto default_deadline = "\"deadline_ms\":" + std::to_string(addon::limits::k_default_invoke_deadline_ms);
+    ok &= check(outcome_is(session.wait_outcome(defaulted, k_probe_deadline_ms), addon::Host_status::SUCCESS) &&
+        has_line_containing(recorder.lines(), default_deadline),
+        id, "the C++ host API selects the desktop broker's default deadline for zero");
 
     // Host-side dispositions that never reach the adapter.
     const auto check_refusal = [&](addon::Json_value value) {

@@ -867,7 +867,7 @@ std::string Host_simulator::invoke(
     request.capability  = capability;
     request.operation   = std::move(operation);
     request.payload     = payload.is_object() ? std::move(payload) : Json_value::object();
-    request.deadline_ms = deadline_ms;
+    request.deadline_ms = deadline_ms > 0 ? deadline_ms : limits::k_default_invoke_deadline_ms;
     if (invocation.profile_storage.has_value()) {
         request.payload.set(k_profile_storage_member, profile_storage_member(*invocation.profile_storage));
         if (impl.recorder != nullptr) {
@@ -889,9 +889,9 @@ std::string Host_simulator::invoke(
     ++impl.next_request;
     Pending_request pending;
     pending.request         = request;
-    pending.deadline        = deadline_ms == limits::k_no_invoke_deadline_ms
+    pending.deadline        = request.deadline_ms == limits::k_no_invoke_deadline_ms
         ? Clock::time_point::max()
-        : Clock::now() + std::chrono::milliseconds(deadline_ms);
+        : Clock::now() + std::chrono::milliseconds(request.deadline_ms);
     pending.profile_storage = invocation.profile_storage;
     impl.pending.emplace(request.request_id, std::move(pending));
     impl.tracker->note_invoke_sent(request.request_id);

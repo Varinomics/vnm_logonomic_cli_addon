@@ -172,7 +172,8 @@ public:
     std::string next_request_id() const;
 
     /// Sends an invoke or refuses it locally; returns the request ID under
-    /// which the outcome is reported.
+    /// which the outcome is reported. A nonpositive deadline selects the
+    /// default, matching the desktop request broker.
     std::string invoke(
         const Capability_pair&              capability,
         std::string                         operation,
