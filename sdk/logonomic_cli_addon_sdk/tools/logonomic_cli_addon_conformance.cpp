@@ -1,4 +1,4 @@
-// logonomic_cli_addon_conformance <package-dir> [--platform <id>] [--no-isolation]
+// logonomic_cli_addon_conformance <package-dir> [--platform <id>] [--no-isolation] [--json]
 //
 // The black-box conformance suite over one package directory
 // (docs/conformance.md, "Checks"). Every check prints one line
@@ -45,9 +45,26 @@ const addon::Capability_pair k_preparation{
     addon::k_launch_preparation_capability_id, addon::k_launch_preparation_execution_version};
 const addon::Capability_pair k_presentation{addon::k_presentation_capability_id, addon::k_presentation_version};
 
+std::string pair_name(const addon::Capability_pair& pair)
+{
+    return pair.capability_id + "@" + std::to_string(pair.version);
+}
+
+addon::Json_value pair_names(const std::vector<addon::Capability_pair>& pairs)
+{
+    auto names = addon::Json_value::array();
+    for (const auto& pair : pairs) names.push_back(addon::Json_value(pair_name(pair)));
+    return names;
+}
+
 class Report
 {
 public:
+    explicit Report(bool json) : m_json(json)
+    {
+        m_package.set("valid", addon::Json_value(false));
+    }
+
     void pass(const std::string& check, const std::string& detail = {}) { line("PASS", check, detail); }
     void skip(const std::string& check, const std::string& detail)      { line("SKIP", check, detail); }
     void fail(const std::string& check, const std::string& detail)
@@ -68,14 +85,91 @@ public:
 
     bool failed() const { return m_failed; }
 
+    void validated_package(const addon::Validated_package& package,
+        const std::vector<addon::Capability_pair>& declared, const std::vector<addon::Capability_pair>& required)
+    {
+        if (!m_json) return;
+        m_package.set("valid", addon::Json_value(true));
+        m_package.set("id", addon::Json_value(package.bootstrap.package_id));
+        m_package.set("generation_digest", addon::Json_value(package.generation_digest_hex));
+        m_package.set("declared_capabilities", pair_names(declared));
+        m_required_live = pair_names(required);
+        m_unobserved = pair_names(declared);
+    }
+
+    void observed_handshake(const std::vector<addon::Capability_pair>& advertised,
+        const std::vector<addon::Capability_pair>& live)
+    {
+        if (!m_json) return;
+        m_availability = addon::Json_value::object();
+        m_availability.set("advertised", pair_names(advertised));
+        m_availability.set("live", pair_names(live));
+    }
+
+    std::optional<addon::Host_outcome> wait_outcome(addon::Host_simulator& session, const std::string& id,
+        const addon::Capability_pair& pair, const std::string& operation, int timeout_ms)
+    {
+        auto outcome = session.wait_outcome(id, timeout_ms);
+        // The tracker finishes a wire request only on its correlated adapter
+        // result. The simulator can also produce outcomes entirely locally.
+        if (m_json && outcome && session.session()->is_finished(id)) {
+            auto observation = addon::Json_value::object();
+            const addon::Json_value capability(pair_name(pair));
+            std::erase(m_unobserved.as_array(), capability);
+            observation.set("capability", capability);
+            observation.set("operation", addon::Json_value(operation));
+            observation.set("host_status", addon::Json_value(addon::host_status_name(outcome->status)));
+            observation.set("reason_code", addon::Json_value(outcome->reason_code));
+            m_operations.push_back(std::move(observation));
+        }
+        return outcome;
+    }
+
+    void finish(const std::string& platform)
+    {
+        if (!m_json) return;
+        auto qualification = addon::Json_value::object();
+        qualification.set("handshake_policy", addon::Json_value("all_handshake_required_sidecars"));
+        qualification.set("required_live", std::move(m_required_live));
+        qualification.set("passed", addon::Json_value(!m_failed));
+        auto coverage = addon::Json_value::object();
+        coverage.set("adapter_operations_with_results", std::move(m_operations));
+        coverage.set("declared_without_observed_result", std::move(m_unobserved));
+        coverage.set("desktop_workflows_exercised", addon::Json_value(false));
+        auto report = addon::Json_value::object();
+        report.set("report_version", addon::Json_value(1));
+        report.set("platform", addon::Json_value(platform));
+        report.set("package", std::move(m_package));
+        report.set("availability", std::move(m_availability));
+        report.set("qualification", std::move(qualification));
+        report.set("coverage", std::move(coverage));
+        report.set("checks", std::move(m_checks));
+        std::puts(addon::serialize_json(report).c_str());
+    }
+
 private:
     void line(const char* status, const std::string& check, const std::string& detail)
     {
+        if (m_json) {
+            auto row = addon::Json_value::object();
+            row.set("id", addon::Json_value(check));
+            row.set("status", addon::Json_value(status));
+            row.set("detail", addon::Json_value(detail));
+            m_checks.push_back(std::move(row));
+            return;
+        }
         std::fprintf(stdout, "%s %s%s%s\n", status, check.c_str(), detail.empty() ? "" : " ", detail.c_str());
         std::fflush(stdout);
     }
 
-    bool m_failed = false;
+    bool              m_json;
+    bool              m_failed = false;
+    addon::Json_value m_package = addon::Json_value::object();
+    addon::Json_value m_required_live;
+    addon::Json_value m_availability;
+    addon::Json_value m_unobserved;
+    addon::Json_value m_operations = addon::Json_value::array();
+    addon::Json_value m_checks     = addon::Json_value::array();
 };
 
 std::string describe(const std::optional<addon::Host_outcome>& outcome)
@@ -91,11 +185,6 @@ std::string describe(const std::optional<addon::Host_outcome>& outcome)
         text += " (" + outcome->message + ")";
     }
     return text;
-}
-
-std::string pair_name(const addon::Capability_pair& pair)
-{
-    return pair.capability_id + "@" + std::to_string(pair.version);
 }
 
 bool inspect_indexed_icon(
@@ -176,6 +265,12 @@ public:
         }
         m_report.pass("package.validates", package->bootstrap.package_id + " " + package->generation_digest_hex);
         m_initial_digest = package->generation_digest_hex;
+        const auto declared = package->declared_capabilities();
+        auto required = declared;
+        // This exact metadata contract has no runtime handshake entry.
+        std::erase(required, addon::Capability_pair{addon::k_account_profile_managed_configuration_capability_id,
+            addon::k_account_profile_managed_configuration_version});
+        m_report.validated_package(*package, declared, required);
         check_capability_declarations(*package, source);
         if (m_report.failed()) {
             return;
@@ -186,8 +281,9 @@ public:
         if (!session) {
             return;
         }
-        check_handshake_agreement(*session, *package);
+        check_handshake_agreement(*session, declared, required);
         const std::vector<addon::Capability_pair> live = session->live_capabilities();
+        m_report.observed_handshake(session->session()->handshake_capabilities(), live);
         m_probe_live   = std::find(live.begin(), live.end(), k_probe) != live.end();
         m_profile_live = std::find(live.begin(), live.end(), k_profile_storage) != live.end();
 
@@ -310,7 +406,7 @@ private:
         addon::Simulator_invocation_options invocation;
         invocation.bypass_liveness = bypass;
         const std::string id = session.invoke(pair, operation, std::move(payload), k_probe_deadline_ms, invocation);
-        return session.wait_outcome(id, k_probe_deadline_ms + m_options.cancel_grace_ms + 500);
+        return m_report.wait_outcome(session, id, pair, operation, k_probe_deadline_ms + m_options.cancel_grace_ms + 500);
     }
 
     bool ready_or_fail(addon::Host_simulator& session, const std::string& check)
@@ -322,20 +418,14 @@ private:
         return false;
     }
 
-    void check_handshake_agreement(addon::Host_simulator& session, const addon::Validated_package& package)
+    void check_handshake_agreement(addon::Host_simulator& session, const std::vector<addon::Capability_pair>& declared,
+        const std::vector<addon::Capability_pair>& required)
     {
         const std::vector<addon::Capability_pair>& handshake = session.session()->handshake_capabilities();
         std::string missing;
-        for (const addon::Capability_pair& declared : package.declared_capabilities()) {
-            // This exact metadata contract has no runtime handshake entry.
-            if (declared == addon::Capability_pair{
-                    addon::k_account_profile_managed_configuration_capability_id,
-                    addon::k_account_profile_managed_configuration_version})
-            {
-                continue;
-            }
-            if (std::find(handshake.begin(), handshake.end(), declared) == handshake.end()) {
-                missing += " " + pair_name(declared);
+        for (const auto& pair : required) {
+            if (std::find(handshake.begin(), handshake.end(), pair) == handshake.end()) {
+                missing += " " + pair_name(pair);
             }
         }
         m_report.verdict("handshake.sidecars_live", missing.empty(),
@@ -343,7 +433,6 @@ private:
                             : "required sidecars absent from the handshake:" + missing);
 
         std::string undeclared;
-        const std::vector<addon::Capability_pair> declared = package.declared_capabilities();
         for (const addon::Capability_pair& pair : handshake) {
             if (std::find(declared.begin(), declared.end(), pair) == declared.end()) {
                 undeclared += " " + pair_name(pair);
@@ -374,7 +463,8 @@ private:
         invocation.profile_storage = addon::Profile_storage_context{addon::k_profile_storage_version, *root};
         const std::string id = session.invoke(k_profile_storage, addon::k_profile_storage_acknowledge,
             addon::Json_value::object(), k_probe_deadline_ms, invocation);
-        const std::optional<addon::Host_outcome> outcome = session.wait_outcome(id, k_probe_deadline_ms + m_options.cancel_grace_ms + 500);
+        const auto outcome = m_report.wait_outcome(session, id, k_profile_storage, addon::k_profile_storage_acknowledge,
+            k_probe_deadline_ms + m_options.cancel_grace_ms + 500);
         m_report.verdict(check, outcome.has_value() && outcome->status == addon::Host_status::SUCCESS, describe(outcome));
     }
 
@@ -450,7 +540,7 @@ private:
                 addon::Json_value payload = addon::Json_value::object();
                 payload.set("count", addon::Json_value(5));
                 std::string id = session.invoke(k_probe, "progress", payload, k_probe_deadline_ms);
-                std::optional<addon::Host_outcome> outcome = session.wait_outcome(id, k_probe_deadline_ms + m_options.cancel_grace_ms);
+                auto outcome = m_report.wait_outcome(session, id, k_probe, "progress", k_probe_deadline_ms + m_options.cancel_grace_ms);
                 const std::uint64_t seen = session.progress_count(id);
                 bool ok = outcome.has_value() && outcome->status == addon::Host_status::SUCCESS && seen == 5;
                 std::string detail = "5 requested, " + std::to_string(seen) + " observed";
@@ -459,7 +549,7 @@ private:
                     constexpr std::int64_t reports = 8192;
                     payload.set("count", addon::Json_value(reports));
                     id      = session.invoke(k_probe, "progress", payload, k_probe_deadline_ms * 4);
-                    outcome = session.wait_outcome(id, k_probe_deadline_ms * 4 + m_options.cancel_grace_ms);
+                    outcome = m_report.wait_outcome(session, id, k_probe, "progress", k_probe_deadline_ms * 4 + m_options.cancel_grace_ms);
                     const std::uint64_t flood_seen = session.progress_count(id);
                     ok = outcome.has_value() && outcome->status == addon::Host_status::SUCCESS &&
                          flood_seen <= bound && session.state() == addon::Simulator_state::READY;
@@ -678,7 +768,7 @@ private:
         const std::string id = session->invoke(k_probe, "sleep", payload, 60000);
         session->pump(100);
         session->cancel(id);
-        const std::optional<addon::Host_outcome> outcome = session->wait_outcome(id, m_options.cancel_grace_ms + 500);
+        const auto outcome = m_report.wait_outcome(*session, id, k_probe, "sleep", m_options.cancel_grace_ms + 500);
         m_report.verdict(check, outcome.has_value() && outcome->status == addon::Host_status::CANCELLED, describe(outcome));
         session->shutdown(addon::limits::k_shutdown_grace_ms, nullptr);
     }
@@ -697,7 +787,7 @@ private:
         addon::Json_value payload = addon::Json_value::object();
         payload.set("ms", addon::Json_value(60000));
         const std::string id = session->invoke(k_probe, "sleep", payload, 300);
-        const std::optional<addon::Host_outcome> outcome = session->wait_outcome(id, 300 + m_options.cancel_grace_ms + 500);
+        const auto outcome = m_report.wait_outcome(*session, id, k_probe, "sleep", 300 + m_options.cancel_grace_ms + 500);
         m_report.verdict(check, outcome.has_value() && outcome->status == addon::Host_status::CANCELLED, describe(outcome));
         session->shutdown(addon::limits::k_shutdown_grace_ms, nullptr);
     }
@@ -761,7 +851,7 @@ private:
 
 int usage()
 {
-    std::fprintf(stderr, "usage: logonomic_cli_addon_conformance <package-dir> [--platform <id>] [--no-isolation]\n");
+    std::fprintf(stderr, "usage: logonomic_cli_addon_conformance <package-dir> [--platform <id>] [--no-isolation] [--json]\n");
     return 2;
 }
 
@@ -770,11 +860,13 @@ int usage()
 int run(int argc, char** argv)
 {
     std::string directory;
+    bool json = false;
     addon::Simulator_options options;
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
         if (argument == "--platform" && i + 1 < argc)  { options.validation.platform_id = argv[++i]; } else
         if (argument == "--no-isolation")              { options.isolate_process_group = false; }      else
+        if (argument == "--json")                      { json = true; }                                else
         if (!argument.empty() && argument[0] == '-')   { return usage(); }                             else
         if (directory.empty())                         { directory = argument; }                       else {
             return usage();
@@ -785,9 +877,11 @@ int run(int argc, char** argv)
     }
     options.package_directory = addon::path_from_utf8(directory);
 
-    Report report;
+    const std::string platform = options.validation.platform_id;
+    Report report(json);
     Suite suite(std::move(options), report);
     suite.run();
+    report.finish(platform);
     return report.failed() ? 1 : 0;
 }
 

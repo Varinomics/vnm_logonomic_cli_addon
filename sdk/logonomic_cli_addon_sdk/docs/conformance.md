@@ -20,13 +20,30 @@ fixtures and accounting assertions.
 ## The suite
 
 ```sh
-logonomic_cli_addon_conformance <package-dir> [--platform <id>] [--no-isolation]
+logonomic_cli_addon_conformance <package-dir> [--platform <id>] [--no-isolation] [--json]
 ```
 
 Every check prints one line `PASS|FAIL|SKIP <check-id> <detail>`. The exit
 code is 1 when any check failed, 0 otherwise. `SKIP` identifies declaration
 payloads the suite does not assess, and checks that probe
 `conformance-probe@1` or `profile-storage@1` when those capabilities are not live.
+
+With `--json`, stdout contains one JSON object for either a passing or failing
+run. The same checks and exit codes apply. Report version 1 includes these fields.
+
+| Field | Meaning |
+|---|---|
+| `platform`, `package` | Selected validation platform and the package validator's `valid` result. A valid package includes its `id`, `generation_digest` and `declared_capabilities`. Declaration decoder results appear in `checks`. |
+| `availability` | The first successful simulator handshake's `advertised` pairs and its `live` intersection with package declarations. A null value means no successful handshake was observed. |
+| `qualification` | `passed` is the suite verdict. The strict `handshake_policy` requires every pair in `required_live`, including conditionally available implementations. Static `account-profile-managed-configuration@1` metadata is exempt. The list is null when package validation fails. |
+| `coverage.adapter_operations_with_results` | One row per correlated adapter reply, with the versioned `capability`, `operation`, simulator `host_status` and `reason_code`. Rows include intentional rejection probes. A host-side refusal or timeout without an adapter reply contributes no row. |
+| `coverage.declared_without_observed_result` | Declared pairs for which no invocation received an adapter result. This list is null when package validation fails. |
+| `coverage.desktop_workflows_exercised` | False for the generic suite. Desktop discovery, launch and other user workflows require their own behavior tests. |
+| `checks` | Actual check rows, each with `id`, `status` (`PASS`, `FAIL` or `SKIP`) and `detail`. If validation or handshake stops the run, subsequent phases have no rows. |
+
+A launcher can pass strict conformance with `launcher-discovery@1` live and
+listed under `declared_without_observed_result`. To qualify the launcher itself,
+exercise `discover` with representative inputs and check which launchers it returns.
 
 The package validator treats sidecar payloads as opaque. Conformance assesses
 each supported declaration before starting the adapter. A malformed declaration
