@@ -18,4 +18,5 @@ enum class Logonomic_cli_addon_activation_state
     STARTING,
     READY,
     TERMINALLY_UNAVAILABLE,
+    IDLE_STOPPING,
 };

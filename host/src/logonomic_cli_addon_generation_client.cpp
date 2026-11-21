@@ -435,7 +435,13 @@ struct Generation_client::Impl
     QTimer                              activation_deadline;
     QTimer                              hello_deadline;
     QTimer                              shutdown_grace;
-    bool                                shutdown_requested    = false;
+    bool                                shutdown_requested      = false;
+    bool                                idle_shutdown_delivered = false;
+    bool                                idle_force_requested    = false;
+    bool                                idle_force_confirmed    = false;
+    bool                                orderly_adapter_exit    = false;
+    bool                                orderly_supervisor_exit = false;
+    Idle_stop_outcome                   idle_outcome            = Idle_stop_outcome::NONE;
     bool                                adapter_exited        = false;
     bool                                adapter_exit_recorded = false;
     bool                                stop_sent             = false;
@@ -448,7 +454,7 @@ struct Generation_client::Impl
     sdk::Transcript_recorder*           recorder = nullptr;
     sdk::Transcript_placeholders        placeholders;
 
-    bool is_live() const { return state == State::STARTING || state == State::READY; }
+    bool is_live() const { return state != State::NOT_STARTED && state != State::TERMINALLY_UNAVAILABLE; }
 
     // -- recording ------------------------------------------------------------
     void record(const char* kind, const std::string& detail = {});
@@ -458,21 +464,22 @@ struct Generation_client::Impl
     bool enqueue(Outgoing::Kind kind, std::vector<std::uint8_t> bytes);
     void wake();
     bool send_link_frame(const sdk::Json_value& message);
-    bool send_link_frame(const sdk::Json_value& message, std::string_view body);
+    bool send_link_frame(const sdk::Json_value& message, std::string_view body,
+        link::Message_type type = link::Message_type::ADAPTER_FRAME);
     void send_control(const protocol::Message& message);
     void end_process_tree(bool kill_now);
 
     // -- transitions ----------------------------------------------------------
     void become_ready();
     void retire_internal(Retirement_reason_kind kind, std::string code, std::string detail, bool record_retired_line);
-    void finish_after_shutdown_exit();
+    void send_shutdown();
     void note_adapter_exit(int exit_code, int signal);
     QList<Declared_capability> compute_live() const;
 
     // -- events from the reader thread ------------------------------------------
     void on_control_message(protocol::Message message);
     void on_control_closed(bool clean);
-    void on_custodian_exited(Custodian_exit exit, bool cleanup_complete);
+    void on_custodian_exited(Custodian_exit exit, bool scope_confirmed, bool cleanup_complete);
     void on_link_frame(link::Frame frame);
     void on_link_closed();
     bool admit_inbound(link::Frame frame);
@@ -495,7 +502,7 @@ Generation_client::Impl::Impl(Generation_client* in_owner, Activation_context in
     context(std::move(in_context)),
     package_id(to_std(context.record.package_id)),
     digest(to_std(context.record.generation_digest_hex)),
-    nonce(to_std(context.record.generation_nonce_hex)),
+    nonce(to_std(context.activation_nonce.isEmpty() ? context.record.generation_nonce_hex : context.activation_nonce)),
     activation_deadline(in_owner),
     hello_deadline(in_owner),
     shutdown_grace(in_owner)
@@ -788,12 +795,13 @@ bool Generation_client::Impl::send_link_frame(const sdk::Json_value& message)
 
 bool Generation_client::Impl::send_link_frame(
     const sdk::Json_value& message,
-    std::string_view       body)
+    std::string_view       body,
+    link::Message_type     type)
 {
     record_host_frame(message);
     return enqueue(
         Outgoing::Kind::LINK,
-        link::encode_frame(link::Message_type::ADAPTER_FRAME, body));
+        link::encode_frame(type, body));
 }
 
 void Generation_client::Impl::send_control(const protocol::Message& message)
@@ -887,21 +895,6 @@ void Generation_client::Impl::retire_internal(
     emit owner->retired(kind, retirement_reason, QString::fromStdString(detail));
 }
 
-// The adapter exited after the shutdown the host asked for: the generation
-// retires with reason `shutdown` and no `retired` line, and the custodian is
-// told to end a tree nothing live is expected in.
-void Generation_client::Impl::finish_after_shutdown_exit()
-{
-    state             = State::TERMINALLY_UNAVAILABLE;
-    retirement_reason = QString::fromLatin1(reason::k_shutdown);
-    shutdown_grace.stop();
-    end_process_tree(false);
-    emit owner->retired(Retirement_reason_kind::SHUTDOWN, retirement_reason, QStringLiteral("the adapter exited after shutdown"));
-}
-
-// One adapter exit is one fact, reported by the supervisor over the link
-// while it lives and by the custodian's `exited` when it does not (a killed
-// tree); whichever arrives first records the line and decides.
 void Generation_client::Impl::note_adapter_exit(int exit_code, int signal)
 {
     if (!adapter_exit_recorded) {
@@ -916,8 +909,21 @@ void Generation_client::Impl::note_adapter_exit(int exit_code, int signal)
         return;
     }
     if (shutdown_requested) {
-        finish_after_shutdown_exit();
+        retire_internal(Retirement_reason_kind::SHUTDOWN, reason::k_shutdown,
+            "the adapter exited after shutdown", false);
         return;
+    }
+    if (state == State::IDLE_STOPPING) {
+        orderly_adapter_exit = exit_code == 0 && signal == 0;
+        if (idle_shutdown_delivered && (orderly_adapter_exit || idle_force_requested)) {
+            // The ordered exit follows the supervisor's final adapter frames.
+            // A nonzero status still needs the native owner's force receipt.
+            shutdown_grace.stop();
+            if (orderly_supervisor_exit) {
+                end_process_tree(false);
+            }
+            return;
+        }
     }
     retire_internal(
         Retirement_reason_kind::ADAPTER_EXITED,
@@ -976,9 +982,29 @@ void Generation_client::Impl::on_control_message(protocol::Message message)
         return;
     }
     if (const protocol::Exited* exited = std::get_if<protocol::Exited>(&message)) {
+        if (state == State::IDLE_STOPPING) {
+            // Reaping races relay delivery. The supervisor must exit on its
+            // own after draining the adapter, before we terminate descendants.
+            if (exited->who == "supervisor") {
+                if (exited->exit_code != 0 || exited->signal != 0) {
+                    retire_internal(Retirement_reason_kind::SUPERVISOR_LOST, reason::k_supervisor_lost,
+                        "the supervisor ended (" + exit_description(exited->exit_code, exited->signal) + ")", true);
+                }
+                else {
+                    orderly_supervisor_exit = true;
+                    if (adapter_exited) {
+                        end_process_tree(false);
+                    }
+                }
+            }
+            return;
+        }
         if (exited->who == "adapter") {
             note_adapter_exit(exited->exit_code, exited->signal);
         }
+        // Darwin's ordered relay can carry the final adapter status after
+        // the native supervisor reap reached the control channel.
+#if !defined(__APPLE__)
         else
         if (is_live() && !adapter_exited) {
             retire_internal(
@@ -987,18 +1013,20 @@ void Generation_client::Impl::on_control_message(protocol::Message message)
                 "the supervisor ended (" + exit_description(exited->exit_code, exited->signal) + ")",
                 true);
         }
+#endif
         return;
     }
     if (const protocol::Error* error = std::get_if<protocol::Error>(&message)) {
-        if (!started_received && is_live()) {
+        if ((!started_received && is_live()) || state == State::IDLE_STOPPING) {
             retire_internal(kind_for_custodian_error(error->reason), error->reason, error->detail, true);
             return;
         }
         emit owner->custodian_error(QString::fromStdString(error->reason), QString::fromStdString(error->detail));
         return;
     }
-    // A negative receipt retains custody. Only a positive receipt followed
-    // by exact custodian exit can publish normal completion.
+    if (const auto* reaped = std::get_if<protocol::Reaped>(&message)) {
+        idle_force_confirmed = reaped->idle_adapter_forced;
+    }
 }
 
 void Generation_client::Impl::on_control_closed(bool clean)
@@ -1016,11 +1044,39 @@ void Generation_client::Impl::on_control_closed(bool clean)
         true);
 }
 
-void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool cleanup_complete)
+void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool scope_confirmed, bool cleanup_complete)
 {
+    const QPointer<Generation_client> guard(owner);
+#if defined(__APPLE__)
+    constexpr int normal_exit_code = 0;
+#else
+    constexpr int normal_exit_code = protocol::k_custody_clean_exit_code;
+#endif
 #ifdef LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS
     observed_native_cleanup_result = cleanup_complete;
 #endif
+    if (state == State::IDLE_STOPPING && exit.signal == 0 && exit.exit_code == normal_exit_code &&
+        adapter_exited && orderly_supervisor_exit)
+    {
+        if (!cleanup_complete) {
+            return;
+        }
+        if (!scope_confirmed) {
+            retire_internal(Retirement_reason_kind::CUSTODIAN_LOST, reason::k_custodian_lost,
+                "the custodian ended without confirming idle cleanup", true);
+        }
+        else
+        if (orderly_adapter_exit || (idle_force_requested && idle_force_confirmed)) {
+            idle_outcome = orderly_adapter_exit ? Idle_stop_outcome::ORDERLY : Idle_stop_outcome::FORCED;
+            retire_internal(Retirement_reason_kind::IDLE_STOP, reason::k_shutdown,
+                "the idle adapter and its native scope settled", false);
+        }
+        else {
+            retire_internal(Retirement_reason_kind::ADAPTER_EXITED, reason::k_adapter_exited,
+                "the adapter exited abnormally during idle shutdown", true);
+        }
+    }
+    else
     if (is_live()) {
         stop_sent = true;
         retire_internal(
@@ -1029,7 +1085,7 @@ void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool clea
             "the custodian ended (" + exit_description(exit.exit_code, exit.signal) + ")",
             true);
     }
-    if (cleanup_complete && !finished_emitted) {
+    if (guard && cleanup_complete && !finished_emitted) {
         finished_emitted = true;
         emit owner->finished();
     }
@@ -1038,6 +1094,14 @@ void Generation_client::Impl::on_custodian_exited(Custodian_exit exit, bool clea
 void Generation_client::Impl::on_link_frame(link::Frame frame)
 {
     switch (frame.type) {
+        case link::Message_type::IDLE_SHUTDOWN:
+            if (state == State::IDLE_STOPPING && !idle_shutdown_delivered && frame.payload.empty()) {
+                // Start the adapter's full grace after its stdin accepted the
+                // shutdown. An unsolicited exit already in transit is a fault.
+                idle_shutdown_delivered = true;
+                shutdown_grace.start(limits::k_shutdown_grace_ms);
+            }
+            return;
         case link::Message_type::ADAPTER_FRAME: {
             if (!is_live()) {
                 return;   // a frame that raced the retirement; nothing after it is interpreted
@@ -1130,9 +1194,14 @@ void Generation_client::Impl::on_link_frame(link::Frame frame)
         }
         case link::Message_type::ADAPTER_EXITED: {
             const std::optional<sdk::Json_value> payload = parse_link_payload(frame);
-            note_adapter_exit(
-                static_cast<int>(integer_member(payload, "exit_code").value_or(-1)),
-                static_cast<int>(integer_member(payload, "signal").value_or(0)));
+            const auto code = integer_member(payload, "exit_code");
+            const auto signal = integer_member(payload, "signal");
+            if (!code || !signal || !std::in_range<int>(*code) || !std::in_range<int>(*signal)) {
+                retire_internal(Retirement_reason_kind::PROTOCOL_VIOLATION, reason::k_frame_violation,
+                    "the supervisor sent an invalid adapter exit status", true);
+                return;
+            }
+            note_adapter_exit(static_cast<int>(*code), static_cast<int>(*signal));
             return;
         }
         default:
@@ -1166,7 +1235,7 @@ bool Generation_client::Impl::initialize_custody(
     const Generation_record& record = context.record;
     const QString scratch_family = QDir(context.roots.scratch_root).filePath(record.package_id);
     const QString prepared_scratch_directory = QDir(scratch_family).filePath(
-        QString::fromLatin1(record.generation_nonce_hex));
+        QString::fromLatin1(nonce));
     const QString expected_generation_directory = QDir(
         QDir(context.roots.custody_root).filePath(record.package_id)).filePath(
             QString::fromLatin1(record.generation_nonce_hex));
@@ -1181,6 +1250,14 @@ bool Generation_client::Impl::initialize_custody(
     const std::string recorded_generation_native = native_path(record.custody_path);
     const std::string expected_adapter_native = native_path(expected_adapter_executable);
     const std::string recorded_adapter_native = native_path(recorded_adapter_executable);
+    if (!sdk::is_valid_generation_nonce_hex(nonce) ||
+        !sdk::is_valid_generation_nonce_hex(to_std(record.generation_nonce_hex)) ||
+        expected_generation_native != recorded_generation_native)
+    {
+        *out_reason = reason::k_path_escape;
+        *out_detail = "invalid activation nonce or frozen package locator";
+        return false;
+    }
     const auto reject_path = [&](std::string_view label, std::size_t bytes, std::size_t limit) {
         *out_reason = reason::k_payload_too_large;
         *out_detail = "generated " + std::string(label) + " is " + std::to_string(bytes) +
@@ -1318,6 +1395,7 @@ bool Generation_client::Impl::initialize_custody(
     start.package_id            = package_id;
     start.generation_digest     = digest;
     start.generation_nonce      = nonce;
+    start.snapshot_nonce        = to_std(record.generation_nonce_hex);
     start.custody_root          = custody_root_native;
     start.scratch_root          = scratch_directory_native;
     start.supervisor_executable = supervisor_executable_native;
@@ -1559,6 +1637,13 @@ bool Generation_client::Impl::cleanup_worker_state(bool cleanup_complete)
         // remains owned by the proxy's pending-generation shutdown barrier.
         return false;
     }
+#ifdef LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS
+    // A healthy custodian can prove settlement even without an independent
+    // containment scope. Tests can withhold publication on either path.
+    while (native_cleanup_observation_withheld.load()) {
+        std::this_thread::sleep_for(milliseconds(50));
+    }
+#endif
     // This fallback runs only behind the existing native-settlement guard,
     // including independent containment after custodian loss. Ordinary Linux
     // owner loss never reaches it. Closing admission also rejects a queued
@@ -1772,7 +1857,8 @@ void Generation_client::Impl::run_reader()
         // relay. Drain to EOF before posting any terminal custody outcome.
         if (!custodian_alive && !link_open && !control_open) {
 #else
-        if (!custodian_alive) {
+        if (!custodian_alive && (!control_open || custodian_exit.signal != 0 ||
+                custodian_exit.exit_code != protocol::k_custody_clean_exit_code)) {
 #endif
             break;
         }
@@ -1922,7 +2008,9 @@ void Generation_client::Impl::run_reader()
     }
     const bool cleanup_complete = cleanup_worker_state(saw_reaped);
     worker_finished.store(true);
-    post([this, custodian_exit, cleanup_complete]() { on_custodian_exited(custodian_exit, cleanup_complete); });
+    post([this, custodian_exit, saw_reaped, cleanup_complete]() {
+        on_custodian_exited(custodian_exit, saw_reaped, cleanup_complete);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1958,6 +2046,19 @@ Generation_client::Generation_client(Activation_context context, QObject* parent
     connect(&impl.shutdown_grace, &QTimer::timeout, this, [this]() {
         Impl& impl = *m_impl;
         if (!impl.is_live() || impl.adapter_exited) {
+            return;
+        }
+        if (impl.state == State::IDLE_STOPPING && !impl.shutdown_requested) {
+            if (!impl.idle_shutdown_delivered) {
+                impl.retire_internal(Retirement_reason_kind::SUPERVISOR_LOST, reason::k_supervisor_lost,
+                    "the supervisor did not confirm delivery of idle shutdown", true);
+                return;
+            }
+            // Preserve the link until the supervisor drains final output and
+            // reports the native exit. A timer cannot certify a forced stop.
+            impl.idle_force_requested = true;
+            impl.record("terminated");
+            impl.send_control(protocol::Message(protocol::Force_idle_request{}));
             return;
         }
         // The adapter did not honour its shutdown grace: the custodian
@@ -2029,8 +2130,18 @@ QString Generation_client::usage_writer_generation() const
 {
     const auto& context = m_impl->context;
     const QString scratch = QDir(QDir(context.roots.scratch_root).filePath(context.record.package_id))
-        .filePath(QString::fromLatin1(context.record.generation_nonce_hex));
+        .filePath(QString::fromLatin1(m_impl->nonce));
     return QString::fromStdString(usage_writer_custody::registry_for_scratch(native_path(scratch)));
+}
+
+QByteArray Generation_client::activation_nonce() const
+{
+    return QByteArray::fromStdString(m_impl->nonce);
+}
+
+Idle_stop_outcome Generation_client::idle_stop_outcome() const
+{
+    return m_impl->finished_emitted ? m_impl->idle_outcome : Idle_stop_outcome::NONE;
 }
 
 QString Generation_client::retirement_reason() const
@@ -2154,26 +2265,50 @@ void Generation_client::send_cancel(const QByteArray& correlation_id)
     }
 }
 
+void Generation_client::Impl::send_shutdown()
+{
+    sdk::Shutdown_request shutdown;
+    shutdown.grace_ms = limits::k_shutdown_grace_ms;
+    const auto message = sdk::encode_host_message(sdk::Host_message(shutdown));
+    const auto type = state == State::IDLE_STOPPING ? link::Message_type::IDLE_SHUTDOWN : link::Message_type::ADAPTER_FRAME;
+    if (!send_link_frame(message, sdk::serialize_json(message), type)) {
+        retire_internal(Retirement_reason_kind::PROTOCOL_VIOLATION, reason::k_stdin_queue_overflow,
+            "the bounded supervisor-link queue could not admit shutdown", true);
+        return;
+    }
+    shutdown_grace.start(limits::k_shutdown_grace_ms);
+}
+
+bool Generation_client::begin_idle_stop()
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    Impl& impl = *m_impl;
+    if (impl.state != State::READY || impl.shutdown_requested || !impl.wire_ids.isEmpty()) {
+        return false;
+    }
+    impl.state = State::IDLE_STOPPING;
+    impl.send_shutdown();
+    return true;
+}
+
 void Generation_client::begin_shutdown()
 {
     Q_ASSERT(QThread::currentThread() == thread());
     Impl& impl = *m_impl;
+    if (impl.state == State::IDLE_STOPPING) {
+        impl.shutdown_requested = true;
+        if (impl.adapter_exited || impl.idle_force_requested) {
+            impl.retire_internal(Retirement_reason_kind::SHUTDOWN, reason::k_shutdown,
+                "the application closed during idle shutdown", false);
+        }
+    }
+    else
     if (impl.state == State::READY) {
         if (impl.shutdown_requested) {
             return;
         }
         impl.shutdown_requested = true;
-        sdk::Shutdown_request shutdown;
-        shutdown.grace_ms = limits::k_shutdown_grace_ms;
-        if (!impl.send_link_frame(sdk::encode_host_message(sdk::Host_message(shutdown)))) {
-            impl.retire_internal(
-                Retirement_reason_kind::PROTOCOL_VIOLATION,
-                reason::k_stdin_queue_overflow,
-                "the bounded supervisor-link queue could not admit shutdown",
-                true);
-            return;
-        }
-        impl.shutdown_grace.start(limits::k_shutdown_grace_ms);
+        impl.send_shutdown();
         return;
     }
     if (impl.state == State::STARTING) {

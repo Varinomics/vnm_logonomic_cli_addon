@@ -376,7 +376,9 @@ private:
                     return;
                 }
             }
-            if (adapter_index != SIZE_MAX && (entries[adapter_index].readable || entries[adapter_index].closed)) {
+            if (!m_adapter_exited && adapter_index != SIZE_MAX &&
+                (entries[adapter_index].readable || entries[adapter_index].closed))
+            {
                 collect_adapter_exit();
             }
 
@@ -435,6 +437,11 @@ private:
     // A grandchild holding a pipe open cannot extend this bound.
     void finish_after_exit()
     {
+        if (m_stdin_ticket != 0) {
+            // A fast adapter can consume shutdown and exit before Windows
+            // publishes the overlapped write completion to the wait loop.
+            write_stdin();
+        }
         const process::Deadline drain_deadline =
             process::Deadline::after(std::chrono::milliseconds(k_post_exit_drain_ms));
         while ((m_stdout.valid() || m_stderr.valid()) && !drain_deadline.expired() && m_link.valid()) {
@@ -630,7 +637,7 @@ private:
     void write_stdin()
     {
         while (m_stdin.valid() && !m_stdin_queue.empty()) {
-            const std::vector<std::uint8_t>& head = m_stdin_queue.front();
+            const auto& head = m_stdin_queue.front();
             process::Io_result written;
             if (m_stdin_ticket != 0) {
                 written = m_stdin.complete_write(m_stdin_ticket);
@@ -639,8 +646,11 @@ private:
                 }
             }
             else {
+                if (m_adapter_exited) {
+                    return;
+                }
                 const process::Write_submission_result submitted =
-                    m_stdin.begin_write(head.data() + m_stdin_head_offset, head.size() - m_stdin_head_offset);
+                    m_stdin.begin_write(head.bytes.data() + m_stdin_head_offset, head.bytes.size() - m_stdin_head_offset);
                 if (submitted.status == process::Write_submission_status::PENDING) {
                     m_stdin_ticket = submitted.ticket;
                     written.status = process::Io_status::WOULD_BLOCK;
@@ -672,7 +682,10 @@ private:
             }
             m_stdin_head_offset += written.bytes;
             m_stdin_queue_bytes -= written.bytes;
-            if (m_stdin_head_offset == head.size()) {
+            if (m_stdin_head_offset == head.bytes.size()) {
+                if (head.idle_shutdown) {
+                    send_link(link::Message_type::IDLE_SHUTDOWN, "");
+                }
                 m_stdin_queue.pop_front();
                 m_stdin_head_offset = 0;
             }
@@ -714,8 +727,16 @@ private:
     void dispatch_link_frame(const link::Frame& in_frame)
     {
         switch (in_frame.type) {
+            case link::Message_type::IDLE_SHUTDOWN:
+                if (!m_adapter_exited) {
+                    collect_adapter_exit();
+                }
+                if (m_adapter_exited) {
+                    return;
+                }
+                [[fallthrough]];
             case link::Message_type::ADAPTER_FRAME:
-                enqueue_stdin(in_frame.payload);
+                enqueue_stdin(in_frame.payload, in_frame.type == link::Message_type::IDLE_SHUTDOWN);
                 return;
             default:
                 log_line(std::string("desktop sent a supervisor-side message type ") +
@@ -724,7 +745,7 @@ private:
         }
     }
 
-    void enqueue_stdin(const std::vector<std::uint8_t>& in_frame)
+    void enqueue_stdin(const std::vector<std::uint8_t>& in_frame, bool idle_shutdown)
     {
         if (m_protocol_stopped || !m_stdin.valid()) {
             return;
@@ -739,7 +760,7 @@ private:
         line.reserve(bytes);
         line.insert(line.end(), in_frame.begin(), in_frame.end());
         line.push_back('\n');
-        m_stdin_queue.push_back(std::move(line));
+        m_stdin_queue.push_back({std::move(line), idle_shutdown});
         m_stdin_queue_bytes += bytes;
         write_stdin();   // the pipe usually has room; otherwise the wait loop resumes it
     }
@@ -831,6 +852,12 @@ private:
         process::Write_ticket     ticket = 0;
     };
 
+    struct Pending_input
+    {
+        std::vector<std::uint8_t> bytes;
+        bool                      idle_shutdown;
+    };
+
     Options                              m_options;
     link::Supervisor_request             m_request;
     process::Stream_channel              m_link;
@@ -846,7 +873,7 @@ private:
     link::Frame_reader                   m_reader;
     std::deque<Pending_link>             m_link_queue;
     std::uint64_t                        m_link_queue_bytes      = 0;
-    std::deque<std::vector<std::uint8_t>> m_stdin_queue;
+    std::deque<Pending_input>            m_stdin_queue;
     std::size_t                          m_stdin_head_offset     = 0;
     process::Write_ticket                m_stdin_ticket          = 0;
     std::uint64_t                        m_stdin_queue_bytes     = 0;

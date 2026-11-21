@@ -32,7 +32,7 @@ struct Generation_record
     QString                    package_id;
     QString                    release_version;
     QByteArray                 generation_digest_hex;   // 64 lowercase hex
-    QByteArray                 generation_nonce_hex;    // 32 lowercase hex
+    QByteArray                 generation_nonce_hex;    // frozen snapshot directory, 32 lowercase hex
     QString                    custody_path;            // read-only generation directory
     QString                    source_root;             // diagnostics only
     Root_level                 source_level = Root_level::INSTALLATION;

@@ -131,9 +131,10 @@ Request_broker::~Request_broker()
 
 std::optional<Request_failure> Request_broker::admission_failure() const
 {
-    if (m_closing || m_client.state() == State::TERMINALLY_UNAVAILABLE) {
+    if (m_closing || m_client.state() == State::IDLE_STOPPING || m_client.state() == State::TERMINALLY_UNAVAILABLE) {
         return Request_failure{Status::PACKAGE_UNAVAILABLE,
-            m_closing ? QString::fromLatin1(sdk::reason::k_shutdown) : m_client.retirement_reason(),
+            m_client.state() == State::TERMINALLY_UNAVAILABLE && !m_closing
+                ? m_client.retirement_reason() : QString::fromLatin1(sdk::reason::k_shutdown),
             QStringLiteral("the add-on generation is terminally unavailable")};
     }
     if (m_pending.size() >= static_cast<qsizetype>(sdk::limits::k_max_in_flight_requests)) {
@@ -298,6 +299,11 @@ void Request_broker::retired(const QString& reason, const QString& detail)
         }
         pending->deliver({status, reason, std::move(message), {}, Request_completion::RETIREMENT});
     }
+}
+
+bool Request_broker::begin_idle_stop()
+{
+    return !m_closing && m_pending.isEmpty() && m_client.begin_idle_stop();
 }
 
 void Request_broker::begin_shutdown()

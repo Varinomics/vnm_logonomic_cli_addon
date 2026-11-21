@@ -17,6 +17,12 @@ claim is a sandbox against same-user hostile native code. Conforming adapters
 write only below the roots the host hands them: `LOGONOMIC_ADDON_SCRATCH_DIR`,
 and an acknowledged profile-storage root (`profile_storage_1.md`).
 
+The host can stop a healthy, drained adapter and later activate the same
+frozen package in a fresh process. The package root, indexed bytes and
+generation digest stay the same. Each activation receives its own generation
+nonce, scratch directory and handshake. Read the two supplied paths directly.
+The package root's directory name can differ from the nonce in the handshake.
+
 ## Environment
 
 The environment is built from an allowlisted platform baseline, plus
@@ -43,7 +49,8 @@ proxy or agent variable is in the baseline. Credentials are never inherited.
   `LOGONOMIC_ADDON_PACKAGE_ID`, `LOGONOMIC_ADDON_GENERATION_DIGEST`,
   `LOGONOMIC_ADDON_GENERATION_NONCE`, `LOGONOMIC_ADDON_PACKAGE_ROOT` (the
   custody directory), `LOGONOMIC_ADDON_SCRATCH_DIR` (a host-owned
-  per-generation scratch directory, removed at retirement),
+  per-activation scratch directory, released after native cleanup and writer
+  settlement),
   `LOGONOMIC_ADDON_CORE_PROTOCOL_GENERATIONS` (the offered set,
   comma-separated), `LOGONOMIC_ADDON_HOST_PRODUCT` (the host product name;
   Logonomic sets `logonomic`).

@@ -68,6 +68,9 @@ public:
     // only after negotiation and immediately before the transport submission.
     void invoke(Broker_request request, Completion complete, Prepare prepare = {});
     void cancel(QByteArray correlation_id);
+    // Commits a discretionary stop only when READY and fully drained.
+    // New work requires another client after positive idle settlement.
+    bool begin_idle_stop();
     void begin_shutdown();
 
 #ifdef LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS

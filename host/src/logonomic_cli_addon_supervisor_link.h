@@ -26,6 +26,7 @@ enum class Message_type : std::uint8_t
     STDERR_TRUNCATED = 3,   // supervisor -> desktop: canonical truncation marker plus the newest retained tail
     ADAPTER_EXITED   = 4,   // supervisor -> desktop: JSON {"exit_code":..,"signal":..}
     VIOLATION        = 5,   // supervisor -> desktop: JSON {"reason":..}; protocol I/O has stopped
+    IDLE_SHUTDOWN    = 6,   // shutdown frame to adapter; empty reply after its complete stdin write
 };
 
 inline constexpr std::size_t k_frame_header_bytes = 5;
@@ -33,7 +34,7 @@ inline constexpr std::size_t k_frame_header_bytes = 5;
 inline bool is_known_message_type(std::uint8_t in_value)
 {
     return in_value >= static_cast<std::uint8_t>(Message_type::ADAPTER_FRAME) &&
-           in_value <= static_cast<std::uint8_t>(Message_type::VIOLATION);
+           in_value <= static_cast<std::uint8_t>(Message_type::IDLE_SHUTDOWN);
 }
 
 inline const char* message_type_name(Message_type in_type)
@@ -44,6 +45,7 @@ inline const char* message_type_name(Message_type in_type)
         case Message_type::STDERR_TRUNCATED: return "STDERR_TRUNCATED";
         case Message_type::ADAPTER_EXITED:   return "ADAPTER_EXITED";
         case Message_type::VIOLATION:        return "VIOLATION";
+        case Message_type::IDLE_SHUTDOWN:    return "IDLE_SHUTDOWN";
         default:                             return "unknown";
     }
 }

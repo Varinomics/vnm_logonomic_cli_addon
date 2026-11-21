@@ -35,6 +35,9 @@ struct Activation_context
     QList<Declared_capability> adopted_capabilities;
     // When embedded, read the runtime owner's active family at native admission.
     const Native_child_custody_callbacks* (*native_family)() = nullptr;
+    // A cycling host supplies a fresh nonce for every one-shot client. A
+    // single-activation host can use the registry's freshly issued nonce.
+    QByteArray activation_nonce;
 };
 
 enum class Retirement_reason_kind
@@ -46,7 +49,10 @@ enum class Retirement_reason_kind
     ACTIVATION_TIMEOUT,
     CANCEL_GRACE_EXPIRED,
     SHUTDOWN,
+    IDLE_STOP,
 };
+
+enum class Idle_stop_outcome { NONE, ORDERLY, FORCED };
 
 /// What send_invoke() did with a request: put it on the wire, or refused it
 /// locally with a reason code from the capability vocabulary
@@ -66,9 +72,10 @@ struct Send_outcome
  * Session_tracker, and reports everything to the broker as signals on the
  * broker's thread.
  *
- * Activation is one-way: NOT_STARTED -> STARTING -> READY ->
- * TERMINALLY_UNAVAILABLE, or STARTING -> TERMINALLY_UNAVAILABLE. Nothing
- * restarts a retired generation. The desktop waits only its direct custodian
+ * Each client owns one activation. A ready, drained client may enter
+ * IDLE_STOPPING. Its native and writer settlement determines whether a
+ * different client may use the frozen package again. Fault retirement is
+ * terminal for the package. The desktop waits only its direct custodian
  * child and never a provider descendant. A retained generation scope is
  * admitted before birth and observed empty before releasing scratch, including
  * after custodian loss. On ordinary Linux without delegated containment, the
@@ -99,6 +106,9 @@ public:
 
     Logonomic_cli_addon_activation_state state() const;
     const Activation_context& context() const;
+    QByteArray activation_nonce() const;
+    // Published at finished(), after native scope and writer settlement.
+    Idle_stop_outcome idle_stop_outcome() const;
     // Immutable native admission identity. The custodian creates this registry
     // before provider birth; broker dispatch can only join existing admission.
     QString usage_writer_generation() const;
@@ -195,6 +205,8 @@ signals:
     void finished();
 
 private:
+    friend class Request_broker;
+    bool begin_idle_stop();
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };
