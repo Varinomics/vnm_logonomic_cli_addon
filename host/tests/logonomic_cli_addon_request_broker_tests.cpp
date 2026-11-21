@@ -62,6 +62,13 @@ bool exercise(const QStringList& arguments)
     const host::Declared_capability probe{QStringLiteral("conformance-probe"), 1};
     host::Generation_client healthy_client({*positive, roots, arguments.at(2), arguments.at(3), platform, {probe}});
     host::Generation_client hanging_client({*blocked,  roots, arguments.at(2), arguments.at(3), platform, {probe}});
+    // A consumer can pump its thread's event loop inside an earlier retirement
+    // slot. Let the sibling's original timer fire after retirement was decided.
+    QObject::connect(&hanging_client, &host::Generation_client::retired, &hanging_client, []() {
+        QEventLoop nested;
+        QTimer::singleShot(1200, &nested, &QEventLoop::quit);
+        nested.exec();
+    });
     auto healthy_owner = std::make_unique<host::Request_broker>(healthy_client);
     auto& healthy = *healthy_owner;
     host::Request_broker hung(hanging_client);
@@ -97,7 +104,7 @@ bool exercise(const QStringList& arguments)
     invoke(healthy, {"queued", probe, echo});
     healthy.cancel("queued");
     invoke(hung, {"culprit", probe, QStringLiteral("sleep"), {}, 300});
-    invoke(hung, {"sibling", probe, echo, {}, sdk::limits::k_no_invoke_deadline_ms});
+    invoke(hung, {"sibling", probe, echo, {}, sdk::limits::k_cancel_grace_ms + 800});
 
     bool ok = check(wait_until([&]() { return results.size() == 5 && hanging_client.custody_finished(); },
         sdk::limits::k_activation_deadline_ms + sdk::limits::k_cancel_grace_ms + 2 * sdk::limits::k_reap_deadline_ms),

@@ -268,7 +268,7 @@ void Request_broker::start_cancel(const QByteArray& id, bool deadline_expired)
 void Request_broker::expire(const QByteArray& id)
 {
     const auto pending = m_pending.value(id);
-    if (!pending || !pending->timer) {
+    if (!pending || !pending->timer || m_client.state() == State::TERMINALLY_UNAVAILABLE) {
         return;
     }
     if (!pending->cancelling) {
