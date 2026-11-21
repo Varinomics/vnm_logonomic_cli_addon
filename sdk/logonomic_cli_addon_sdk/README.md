@@ -5,11 +5,12 @@ for Git repositories, terminals and coding agents. Say you have a command called
 `desktool`. You want a user who has installed it to see **DeskTool** when
 scanning for launchers and to open it in a repository's terminal.
 
-You write a small program called an **adapter** that knows how to find
-DeskTool and prepare its launch. You distribute it as an **add-on package**.
-Together these make up the DeskTool **provider**. The package declares the
-features it supports, such as launcher discovery. Each feature has a contract
-called a **capability**. When DeskTool changes, you can update the integration
+The **DeskTool provider** is the integration you write for Logonomic. Its
+**adapter** is a program that finds the separately installed `desktool`
+command and tells Logonomic how to launch it. You distribute the adapter in
+an **add-on package** with a manifest and files declaring which features the
+provider supports. Logonomic calls these features **capabilities**. Launcher
+discovery is one example. When DeskTool changes, you can update the integration
 independently as long as it uses capabilities the desktop already understands.
 
 ## From a scan to a running CLI
