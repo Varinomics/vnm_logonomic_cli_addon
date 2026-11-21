@@ -31,6 +31,12 @@
 #include "logonomic_cli_addon/limits.h"
 #include "logonomic_cli_addon/package_source.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__linux__)
+#include <signal.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -69,6 +75,11 @@ void close_usage_writers(const std::string& generation)
 constexpr int k_exit_ok             = 0;
 constexpr int k_exit_failure        = 1;   // could not run at all, or the run ended abnormally
 constexpr int k_exit_start_rejected = 2;   // answered `error` before or while starting the tree
+#if defined(_WIN32)
+// Job cleanup also produces exit statuses. Use a distinct customer exit
+// code for a targeted idle termination of the original adapter.
+constexpr int k_idle_adapter_exit_code = 0x20000001;
+#endif
 
 constexpr const char* k_host_product = "logonomic";
 
@@ -263,6 +274,9 @@ bool validate_start(const protocol::Start_request& in_start, Validated_start* ou
     if (!sdk::is_valid_generation_nonce_hex(in_start.generation_nonce)) {
         return reject(reason::k_frame_violation, "generation_nonce is not 32 lowercase hex characters");
     }
+    if (!sdk::is_valid_generation_nonce_hex(in_start.snapshot_nonce)) {
+        return reject(reason::k_frame_violation, "snapshot_nonce is not 32 lowercase hex characters");
+    }
     if (!is_confined_absolute_path(in_start.custody_root)) {
         return reject(reason::k_path_escape, "custody_root is not a confined absolute path");
     }
@@ -370,7 +384,7 @@ bool validate_start(const protocol::Start_request& in_start, Validated_start* ou
     out_validated->generation_directory =
         sdk::path_from_utf8(in_start.custody_root) /
         sdk::path_from_utf8(in_start.package_id) /
-        sdk::path_from_utf8(in_start.generation_nonce);
+        sdk::path_from_utf8(in_start.snapshot_nonce);
     out_validated->adapter_executable =
         out_validated->generation_directory / sdk::path_from_utf8(in_start.adapter_relative_path);
     if (sdk::path_to_utf8(out_validated->generation_directory).size() > limits::k_max_generation_directory_bytes ||
@@ -739,6 +753,13 @@ private:
                     if (const auto* stop = std::get_if<protocol::Stop_request>(&*incoming.message)) {
                         request_stop(std::clamp(stop->grace_ms, 0, limits::k_terminate_to_kill_ms));
                     }
+                    else
+                    if (std::holds_alternative<protocol::Force_idle_request>(*incoming.message)) {
+                        // The COMMAND owner has sole signal authority. Its
+                        // receipt proves group settlement, but does not say
+                        // whether it consumed STOP before an external signal.
+                        request_stop(0);
+                    }
                     else {
                         m_control.send_error(reason::k_out_of_order_message, "expected stop after start");
                     }
@@ -749,13 +770,19 @@ private:
                     request_stop(0);
                 }
             }
-            if (!m_supervisor_process.reap_available().empty()) {
+            const auto supervisor_exits = m_supervisor_process.reap_available();
+            if (!supervisor_exits.empty()) {
+                report_supervisor_exit(supervisor_exits.front());
                 supervisor_exited = true;
                 request_stop(0);
             }
-            if (!m_owner_process.reap_available().empty()) {
+            const auto owner_exits = m_owner_process.reap_available();
+            if (!owner_exits.empty()) {
                 // Receive queued settlement before interpreting helper death.
                 receive_native();
+                if (owner_exits.front().signal != 0 || owner_exits.front().exit_code != 0) {
+                    fail("the native adapter owner ended abnormally");
+                }
                 m_owner_exited = true;
                 m_status.close();
             }
@@ -764,12 +791,20 @@ private:
             {
                 const auto outcome = m_supervisor_process.terminate_and_reap(
                     std::chrono::milliseconds(0), std::chrono::milliseconds(limits::k_reap_deadline_ms));
+                for (const auto& exit : outcome.exits) {
+                    report_supervisor_exit(exit);
+                }
                 supervisor_exited = outcome.complete || outcome.terminal_unconfirmed;
             }
         }
         finish_helpers();
         report_settlement(m_native_settled && m_native_confirmed);
         return k_exit_ok;
+    }
+
+    void report_supervisor_exit(const process::Exit_status& exit)
+    {
+        (void)m_control.send(protocol::Exited{"supervisor", exit.exit_code, exit.signal});
     }
 
     void finish_helpers()
@@ -1148,6 +1183,36 @@ private:
         }
     }
 
+#if !defined(__APPLE__)
+    bool force_idle_adapter()
+    {
+        // Reaping can remove Linux pidfds. Only the original pair together
+        // can support an idle stop with an intact relay.
+        if (m_supervisor_pid == 0 || m_adapter_pid == 0 || m_idle_force_sent) {
+            return true;
+        }
+        const auto coordinates = m_tree.coordinates();
+        process::Wait_entry exits[] = {
+            {coordinates.process_handles[0], true},
+            {coordinates.process_handles[1], true},
+        };
+        const int ready = process::wait_ready(exits, 2, 0);
+        if (ready != 0) {
+            return ready > 0 && !exits[0].failed && !exits[1].failed;
+        }
+
+        const auto adapter = coordinates.process_handles[1];
+#if defined(_WIN32)
+        m_idle_force_sent = TerminateProcess(adapter, k_idle_adapter_exit_code) != FALSE;
+#else
+        m_idle_force_sent = process::posix_pidfd_send_signal(adapter, SIGKILL) == 0;
+#endif
+        // A natural exit can win the race with the targeted action. Leave
+        // the supervisor alive to deliver its actual status in that case.
+        return m_idle_force_sent || (process::wait_ready(&exits[1], 1, 0) == 1 && !exits[1].failed);
+    }
+#endif
+
     int serve()
     {
         while (true) {
@@ -1162,7 +1227,7 @@ private:
                 entry.want_read = true;
                 entries.push_back(entry);
             }
-            const int ready = process::wait_ready(entries.data(), entries.size(), -1);
+            const int ready = process::wait_ready(entries.data(), entries.size(), m_idle_relay_deadline.remaining_ms());
             if (ready < 0) {
                 log_line("wait failed; tearing the tree down");
                 teardown_quietly();
@@ -1172,6 +1237,11 @@ private:
             report_exits();
 
             if (!entries[0].readable && !entries[0].closed && !entries[0].failed) {
+                if (m_idle_relay_deadline.expired()) {
+                    m_control.send_error(reason::k_supervisor_lost, "the idle adapter exit was not relayed");
+                    finish_tree(std::chrono::milliseconds(0), true);
+                    return k_exit_failure;
+                }
                 continue;
             }
             const Control::Incoming incoming = m_control.receive(0);
@@ -1202,6 +1272,20 @@ private:
                 finish_tree(std::chrono::milliseconds(grace_ms), true);
                 return k_exit_ok;
             }
+#if !defined(__APPLE__)
+            if (std::holds_alternative<protocol::Force_idle_request>(*incoming.message)) {
+                if (!force_idle_adapter()) {
+                    m_control.send_error(reason::k_custodian_lost, "could not terminate the idle adapter");
+                    finish_tree(std::chrono::milliseconds(0), true);
+                    return k_exit_failure;
+                }
+                if (m_supervisor_pid != 0) {
+                    m_idle_relay_deadline = process::Deadline::after(
+                        std::chrono::milliseconds(limits::k_reap_deadline_ms));
+                }
+                continue;
+            }
+#endif
             if (std::holds_alternative<protocol::Start_request>(*incoming.message)) {
                 m_control.send_error(reason::k_out_of_order_message, "a second start");
                 continue;
@@ -1222,10 +1306,18 @@ private:
         exited.signal    = in_exit.signal;
         if (in_exit.process_id == m_supervisor_pid) {
             exited.who = "supervisor";
+            m_supervisor_pid = 0;
+            m_idle_relay_deadline = process::Deadline::never();
         }
         else
         if (in_exit.process_id == m_adapter_pid) {
             exited.who = "adapter";
+            m_adapter_pid = 0;
+#if defined(_WIN32)
+            m_idle_adapter_forced = m_idle_force_sent && in_exit.exit_code == k_idle_adapter_exit_code;
+#elif defined(__linux__)
+            m_idle_adapter_forced = m_idle_force_sent && in_exit.signal == SIGKILL;
+#endif
         }
         else {
             return;
@@ -1271,6 +1363,7 @@ private:
         reaped.escalated_to_kill = outcome.escalated_to_kill;
         reaped.processes_reaped  = m_processes_reaped;
         reaped.remaining         = outcome.remaining_children;
+        reaped.idle_adapter_forced = outcome.complete && m_idle_adapter_forced;
         return reaped;
     }
 
@@ -1323,6 +1416,9 @@ private:
     process::Native_handle      m_supervisor_handle = process::k_invalid_handle;
     std::int64_t                m_adapter_pid      = 0;
     int                         m_processes_reaped = 0;
+    bool                        m_idle_force_sent = false;
+    bool                        m_idle_adapter_forced = false;
+    process::Deadline           m_idle_relay_deadline = process::Deadline::never();
 };
 
 } // namespace

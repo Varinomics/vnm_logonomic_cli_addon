@@ -63,8 +63,8 @@ struct Darwin_custody
 /// plus the manifest's adapter.environment, in NAME/VALUE pairs; the
 /// custodian rejects any reserved (LOGONOMIC_-prefixed) name and appends the
 /// reserved variables itself from the other members. The generation
-/// directory is <custody_root>/<package_id>/<generation_nonce> and the
-/// adapter is <generation directory>/<adapter_relative_path>.
+/// directory is <custody_root>/<package_id>/<snapshot_nonce>. Reopening the
+/// same snapshot gives the adapter a fresh generation_nonce and scratch.
 /// `link_child_number` is where the supervisor-link end was inherited into
 /// the custodian: the descriptor number on Linux, the handle value on Windows.
 struct Start_request
@@ -72,6 +72,7 @@ struct Start_request
     std::string                                      package_id;
     std::string                                      generation_digest;      // 64 lowercase hex
     std::string                                      generation_nonce;       // 32 lowercase hex
+    std::string                                      snapshot_nonce;         // frozen directory, 32 lowercase hex
     std::string                                      custody_root;           // absolute
     std::string                                      scratch_root;           // absolute, host-owned, per generation
     std::string                                      supervisor_executable;  // absolute
@@ -94,6 +95,10 @@ struct Stop_request
 {
     int grace_ms = cli_addon::limits::k_terminate_to_kill_ms;
 };
+
+/// After the adapter's idle shutdown grace, end the adapter under its native
+/// owner while the supervisor can still drain and report ordered evidence.
+struct Force_idle_request {};
 
 /// custodian -> desktop. On Linux the message carries the pidfds of
 /// supervisor and adapter, in that order, as transferred descriptors.
@@ -128,6 +133,7 @@ struct Reaped
     int                       processes_reaped  = 0;
     std::vector<std::int64_t> remaining;
     std::optional<Darwin_custody> darwin_custody;
+    bool idle_adapter_forced = false;   // scoped settlement corroborates the requested adapter termination
 };
 
 /// custodian -> desktop. reason is from cli_addon::reason.
@@ -137,7 +143,7 @@ struct Error
     std::string detail;
 };
 
-using Message = std::variant<Start_request, Stop_request, Started, Exited, Reaped, Error>;
+using Message = std::variant<Start_request, Stop_request, Force_idle_request, Started, Exited, Reaped, Error>;
 
 /// Why decode() rejected a control message. reason is one of
 /// cli_addon::reason::k_frame_violation, k_unexpected_member,
@@ -150,6 +156,7 @@ struct Decode_failure
 
 inline constexpr const char* k_type_start   = "start";
 inline constexpr const char* k_type_stop    = "stop";
+inline constexpr const char* k_type_force_idle = "force_idle";
 inline constexpr const char* k_type_started = "started";
 inline constexpr const char* k_type_exited  = "exited";
 inline constexpr const char* k_type_reaped  = "reaped";
@@ -360,6 +367,7 @@ inline std::string encode(const Message& in_message)
         object.set("package_id",            detail::string_value(start->package_id));
         object.set("generation_digest",     detail::string_value(start->generation_digest));
         object.set("generation_nonce",      detail::string_value(start->generation_nonce));
+        object.set("snapshot_nonce",        detail::string_value(start->snapshot_nonce));
         object.set("custody_root",          detail::string_value(start->custody_root));
         object.set("scratch_root",          detail::string_value(start->scratch_root));
         object.set("supervisor_executable", detail::string_value(start->supervisor_executable));
@@ -386,6 +394,10 @@ inline std::string encode(const Message& in_message)
         object.set("grace_ms", detail::integer_value(stop->grace_ms));
     }
     else
+    if (std::holds_alternative<Force_idle_request>(in_message)) {
+        object.set("type", Json_value(k_type_force_idle));
+    }
+    else
     if (const Started* started = std::get_if<Started>(&in_message)) {
         object.set("type", Json_value(k_type_started));
         object.set("supervisor_pid", detail::integer_value(started->supervisor_pid));
@@ -407,6 +419,9 @@ inline std::string encode(const Message& in_message)
         object.set("escalated_to_kill", Json_value(reaped->escalated_to_kill));
         object.set("processes_reaped",  detail::integer_value(reaped->processes_reaped));
         object.set("remaining",         detail::integer_array(reaped->remaining));
+        if (reaped->idle_adapter_forced) {
+            object.set("idle_adapter_forced", Json_value(true));
+        }
         detail::encode_darwin_custody(object, reaped->darwin_custody);
     }
     else
@@ -454,7 +469,7 @@ inline std::optional<Message> decode(std::string_view in_bytes, Decode_failure* 
         detail::Object_reader reader(
             *parsed,
             {
-                "type", "package_id", "generation_digest", "generation_nonce", "custody_root",
+                "type", "package_id", "generation_digest", "generation_nonce", "snapshot_nonce", "custody_root",
                 "scratch_root", "supervisor_executable", "adapter_relative_path", "adapter_argv",
                 "environment", "core_protocol_generations", "link_child_number", "limits", "darwin_custody",
             },
@@ -465,6 +480,7 @@ inline std::optional<Message> decode(std::string_view in_bytes, Decode_failure* 
             reader.string("package_id",            &start.package_id)            &&
             reader.string("generation_digest",     &start.generation_digest)     &&
             reader.string("generation_nonce",      &start.generation_nonce)      &&
+            reader.string("snapshot_nonce",        &start.snapshot_nonce)        &&
             reader.string("custody_root",          &start.custody_root)          &&
             reader.string("scratch_root",          &start.scratch_root)          &&
             reader.string("supervisor_executable", &start.supervisor_executable) &&
@@ -554,6 +570,14 @@ inline std::optional<Message> decode(std::string_view in_bytes, Decode_failure* 
         return Message(started);
     }
 
+    if (type_name == k_type_force_idle) {
+        detail::Object_reader reader(*parsed, {"type"}, out_failure);
+        if (!reader.ok()) {
+            return std::nullopt;
+        }
+        return Message(Force_idle_request{});
+    }
+
     if (type_name == k_type_exited) {
         Exited exited;
         detail::Object_reader reader(*parsed, {"type", "who", "exit_code", "signal"}, out_failure);
@@ -583,7 +607,9 @@ inline std::optional<Message> decode(std::string_view in_bytes, Decode_failure* 
     if (type_name == k_type_reaped) {
         Reaped reaped;
         detail::Object_reader reader(
-            *parsed, {"type", "complete", "escalated_to_kill", "processes_reaped", "remaining", "darwin_custody"},
+            *parsed,
+            {"type", "complete", "escalated_to_kill", "processes_reaped", "remaining",
+             "darwin_custody", "idle_adapter_forced"},
             out_failure);
         std::int64_t processes_reaped = 0;
         const bool ok =
@@ -600,6 +626,11 @@ inline std::optional<Message> decode(std::string_view in_bytes, Decode_failure* 
             return std::nullopt;
         }
         reaped.processes_reaped = static_cast<int>(processes_reaped);
+        if (parsed->find("idle_adapter_forced") &&
+            !reader.boolean("idle_adapter_forced", &reaped.idle_adapter_forced))
+        {
+            return std::nullopt;
+        }
         detail::decode_darwin_custody(*parsed, reaped.darwin_custody);
         return Message(std::move(reaped));
     }
