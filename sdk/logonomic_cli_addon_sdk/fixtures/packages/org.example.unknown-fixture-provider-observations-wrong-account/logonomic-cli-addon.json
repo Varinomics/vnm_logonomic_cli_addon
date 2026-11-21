@@ -1,0 +1,33 @@
+{
+  "bootstrap_version": 1,
+  "package_id": "org.example.unknown-fixture-provider-observations-wrong-account",
+  "release_version": "1.0.0+fixture",
+  "platforms": [
+    "linux-x86_64",
+    "windows-x86_64"
+  ],
+  "adapter": {
+    "path": {
+      "linux-x86_64": "adapter/unknown-fixture-adapter",
+      "windows-x86_64": "adapter/unknown-fixture-adapter.exe"
+    },
+    "argv": [
+      "--behavior",
+      "provider-observations",
+      "--auth-version",
+      "2",
+      "--quota-version",
+      "2",
+      "--usage-version",
+      "3",
+      "--with-accounts",
+      "--probe-mode",
+      "wrong-account"
+    ],
+    "environment": {}
+  },
+  "core_protocol_generations": [
+    1
+  ],
+  "integrity_index": "package.files.json"
+}

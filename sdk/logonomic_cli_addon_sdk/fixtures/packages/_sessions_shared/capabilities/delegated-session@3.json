@@ -1,0 +1,11 @@
+{
+  "capability_id": "delegated-session",
+  "version": 3,
+  "payload": {
+    "purposes": [
+      "read_only_review",
+      "implementation"
+    ],
+    "environment_names": []
+  }
+}

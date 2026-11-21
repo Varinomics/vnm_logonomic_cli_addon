@@ -1,0 +1,11 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "sleep", "capability_id": "conformance-probe", "version": 1,
+     "operation": "sleep", "payload": {"ms": 60000}, "deadline_ms": 60000},
+    {"op": "pump_ms", "ms": 200},
+    {"op": "cancel", "id": "sleep"},
+    {"op": "wait_result", "id": "sleep", "timeout_ms": 5000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

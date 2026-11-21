@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.25)
+set(PACKAGE "@qt_package_directory@")
+set(EXECUTABLES "@qt_executable_relatives@")
+include("@qt_runtime_directory@/qt_runtime_layout_check.cmake")
+
+if("@CMAKE_SYSTEM_NAME@" STREQUAL "Linux")
+    execute_process(COMMAND "@Python3_EXECUTABLE@" -B "@linux_runtime_deployer@"
+        verify --package "${PACKAGE}" COMMAND_ERROR_IS_FATAL ANY)
+else()
+    include("@qt_recipe_directory@/check-native-runtime-closure-$<CONFIG>.cmake")
+endif()

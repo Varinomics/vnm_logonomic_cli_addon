@@ -1,0 +1,21 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "prepare", "capability_id": "delegated-session", "version": 3,
+     "operation": "prepare",
+     "payload": {"purpose": "implementation",
+                 "launcher": {"script_body": "unknown-fixture-cli", "runner_key": "direct", "environment_text": ""},
+                 "launcher_argv": ["unknown-fixture-cli"],
+                 "working_directory": "/unknown-fixture-session",
+                 "launch_environment": {"platform": "linux-x86_64", "effective_environment": {}},
+                 "prompt_base64": "UmV2aWV3IHRoaXMu",
+                 "control": {"version": 1, "task_id": "task-1",
+                             "servers": [{"server_id": "coordination", "program": "/opt/example/coordination-mcp",
+                                          "actions": ["status", "notice"], "environment": {"EXAMPLE_TOKEN": "1"}}],
+                             "private_artifact_root": "/unknown-fixture-session/.logonomic/delegation/task-1"},
+                 "declared_assets": []},
+     "deadline_ms": 15000, "profile_storage": true},
+    {"op": "wait_result", "id": "prepare", "timeout_ms": 18000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

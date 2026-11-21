@@ -1,0 +1,7 @@
+{
+  "capability_id": "managed-assets",
+  "version": 1,
+  "payload": {
+    "assets": ["assets/mark.svg"]
+  }
+}

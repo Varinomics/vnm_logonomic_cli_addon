@@ -1,0 +1,1 @@
+{"capability_id":"managed-configuration","version":2,"payload":{"environment_name":"FIXTURE_HOME","relative_path":"config-v2.toml","default_home_relative_path":".fixture","selector_policy":"raw","default_home_policy":"home-or-temp"}}

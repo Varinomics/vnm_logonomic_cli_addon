@@ -1,0 +1,28 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "resume", "capability_id": "interactive-resume", "version": 2,
+     "operation": "prepare_resume",
+     "payload": {"launcher": {"script_body": "unknown-fixture-cli", "runner_key": "direct", "environment_text": ""},
+                 "launcher_argv": ["unknown-fixture-cli"],
+                 "working_directory": "/unknown-fixture-session",
+                 "launch_environment": {"platform": "linux-x86_64", "effective_environment": {}},
+                 "title_instruction": "Unknown fixture",
+                 "declared_assets": [],
+                 "resume": {"version": 1, "record": {"provider_session_id": "session-a"}}},
+     "deadline_ms": 5000, "profile_storage": true},
+    {"op": "wait_result", "id": "resume", "timeout_ms": 8000},
+    {"op": "invoke", "id": "unusable", "capability_id": "interactive-resume", "version": 2,
+     "operation": "prepare_resume",
+     "payload": {"launcher": {"script_body": "unknown-fixture-cli", "runner_key": "direct", "environment_text": ""},
+                 "launcher_argv": ["unknown-fixture-cli"],
+                 "working_directory": "/unknown-fixture-session",
+                 "launch_environment": {"platform": "linux-x86_64", "effective_environment": {}},
+                 "title_instruction": "Unknown fixture",
+                 "declared_assets": [],
+                 "resume": {"version": 1, "record": {"note": "no session identifier"}}},
+     "deadline_ms": 5000, "profile_storage": true},
+    {"op": "wait_result", "id": "unusable", "timeout_ms": 8000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

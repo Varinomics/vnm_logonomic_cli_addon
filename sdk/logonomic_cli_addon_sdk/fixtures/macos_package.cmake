@@ -1,0 +1,5 @@
+file(READ "${PACKAGE_DIRECTORY}/logonomic-cli-addon.json" manifest)
+string(JSON platform_count LENGTH "${manifest}" platforms)
+string(JSON manifest SET "${manifest}" platforms ${platform_count} "\"macos-arm64\"")
+string(JSON manifest SET "${manifest}" adapter path macos-arm64 "\"adapter/${ADAPTER_NAME}\"")
+file(WRITE "${PACKAGE_DIRECTORY}/logonomic-cli-addon.json" "${manifest}\n")

@@ -1,0 +1,9 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "echo", "capability_id": "conformance-probe", "version": 1,
+     "operation": "echo", "payload": {"marker": "crash-script"}, "deadline_ms": 5000},
+    {"op": "wait_result", "id": "echo", "timeout_ms": 8000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

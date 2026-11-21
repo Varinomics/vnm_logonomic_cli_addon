@@ -1,0 +1,3 @@
+Unknown fixture package for the Logonomic CLI add-on conformance suite.
+This banner is an original package-owned asset; the integrity index records
+its disposition explicitly as origin "package".

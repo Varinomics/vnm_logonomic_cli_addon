@@ -1,0 +1,31 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "prepare", "capability_id": "structured-session", "version": 3,
+     "operation": "prepare",
+     "payload": {"purpose": "read_only_review",
+                 "launcher": {"script_body": "unknown-fixture-cli", "runner_key": "direct", "environment_text": ""},
+                 "launcher_argv": ["unknown-fixture-cli"],
+                 "working_directory": "/unknown-fixture-session",
+                 "launch_environment": {"platform": "linux-x86_64", "effective_environment": {}},
+                 "prompt_base64": "UmV2aWV3IHRoaXMu",
+                 "declared_assets": []},
+     "deadline_ms": 5000, "profile_storage": true},
+    {"op": "wait_result", "id": "prepare", "timeout_ms": 8000},
+    {"op": "invoke", "id": "partial", "capability_id": "structured-session", "version": 3,
+     "operation": "inspect",
+     "payload": {"purpose": "read_only_review",
+                 "inspection": {"protocol_state_base64_chunks": [], "stdout_base64_chunks": ["dW5rbm93bi1maXh0dXJlLWhlbHBlciAxIHN0cnVjdHVyZWQgcmVhZF9vbmx5X3Jldmlldwpwcm9tcHQtYnl0ZXMgMTIKcA=="], "stderr_base64_chunks": [],
+                                "final": false, "timed_out": false, "exit_code": 0}},
+     "deadline_ms": 5000},
+    {"op": "wait_result", "id": "partial", "timeout_ms": 8000},
+    {"op": "invoke", "id": "final", "capability_id": "structured-session", "version": 3,
+     "operation": "inspect",
+     "payload": {"purpose": "read_only_review",
+                 "inspection": {"protocol_state_base64_chunks": [], "stdout_base64_chunks": ["dW5rbm93bi1maXh0dXJlLWhlbHBlciAxIHN0cnVjdHVyZWQgcmVhZF9vbmx5X3Jldmlldwpwcm9tcHQtYnl0ZXMgMTIKcHJvbXB0LXNoYTI1NiA0N2M5MzM5YmMzODRkOTM4ODc2MmNlNjE1MWZkZjNhMWFmOTRlOGRkYWY5NGZkNmE4MDJiODFmNzU3NTk5M2E4CnByZXNlbnRhdGlvbiByZXZpZXdfaW5pdGlhbGl6ZWQKcHJlc2VudGF0aW9uIHJlYXNvbmluZwpwcmVzZW50YXRpb24gYW5hbHlzaXNfdXBkYXRlCnJlc3VsdC1iZWdpbgpVbmtub3duIGZpeHR1cmUgc3RydWN0dXJlZCByZWFkX29ubHlfcmV2aWV3IHJ1biBvdmVyIDEyIHByb21wdCBieXRlcyAoc2hhMjU2IDQ3YzkzMzliYzM4NGQ5Mzg4NzYyY2U2MTUxZmRmM2ExYWY5NGU4ZGRhZjk0ZmQ2YTgwMmI4MWY3NTc1OTkzYTgpLgpyZXN1bHQtZW5kCg=="], "stderr_base64_chunks": [],
+                                "final": true, "timed_out": false, "exit_code": 0}},
+     "deadline_ms": 5000},
+    {"op": "wait_result", "id": "final", "timeout_ms": 8000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

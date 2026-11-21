@@ -1,0 +1,9 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "ack", "capability_id": "profile-storage", "version": 1,
+     "operation": "acknowledge", "payload": {}, "deadline_ms": 5000, "profile_storage": true},
+    {"op": "wait_result", "id": "ack", "timeout_ms": 8000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

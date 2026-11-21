@@ -1,0 +1,18 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "invoke", "id": "window", "capability_id": "lifecycle-events", "version": 2,
+     "operation": "observe",
+     "payload": {"session": {"working_directory": "/unknown-fixture-session",
+                             "launcher_argv": ["unknown-fixture-cli"], "provider_session_id": ""},
+                 "resume_cursor": "", "window_ms": 1500},
+     "deadline_ms": 6500},
+    {"op": "wait_result", "id": "window", "timeout_ms": 9000},
+    {"op": "invoke", "id": "poll", "capability_id": "lifecycle-events", "version": 2,
+     "operation": "poll_observations",
+     "payload": {"resume_cursor": "", "limit": 16},
+     "deadline_ms": 5000},
+    {"op": "wait_result", "id": "poll", "timeout_ms": 8000},
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

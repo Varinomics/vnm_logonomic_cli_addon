@@ -1,0 +1,16 @@
+{
+  "bootstrap_version": 1,
+  "package_id": "org.example.unknown-fixture-handshake-without-sidecar",
+  "release_version": "1.0.0+fixture",
+  "platforms": ["linux-x86_64", "windows-x86_64"],
+  "adapter": {
+    "path": {
+      "linux-x86_64": "adapter/unknown-fixture-adapter",
+      "windows-x86_64": "adapter/unknown-fixture-adapter.exe"
+    },
+    "argv": ["--behavior", "handshake-without-sidecar"],
+    "environment": {}
+  },
+  "core_protocol_generations": [1],
+  "integrity_index": "package.files.json"
+}

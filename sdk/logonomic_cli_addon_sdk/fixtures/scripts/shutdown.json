@@ -1,0 +1,6 @@
+{
+  "script_version": 1,
+  "steps": [
+    {"op": "shutdown", "grace_ms": 5000}
+  ]
+}

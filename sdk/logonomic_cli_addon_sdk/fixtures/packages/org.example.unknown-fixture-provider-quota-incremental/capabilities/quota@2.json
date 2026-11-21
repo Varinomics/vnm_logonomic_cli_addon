@@ -1,0 +1,5 @@
+{
+  "capability_id": "quota",
+  "version": 2,
+  "payload": {"environment_names": ["PATH"]}
+}
