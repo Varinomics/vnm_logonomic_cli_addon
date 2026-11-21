@@ -368,6 +368,9 @@ struct Generation_client::Impl
     bool                      scratch_path_owned = false;
 #ifdef LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS
     std::optional<bool> observed_native_cleanup_result;
+#if defined(__APPLE__)
+    std::function<void(int, std::optional<bool>)> control_write_probe;
+#endif
 #endif
     std::string        package_id;
     std::string        digest;
@@ -1749,7 +1752,13 @@ void Generation_client::Impl::run_reader()
         }
     };
     const auto write_control = [&](const std::uint8_t* bytes, std::size_t size) {
+#if defined(__APPLE__) && defined(LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS)
+        if (control_write_probe) control_write_probe(custodian_handle, std::nullopt);
+#endif
         const auto status = control.send(bytes, size);
+#if defined(__APPLE__) && defined(LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS)
+        if (control_write_probe) control_write_probe(custodian_handle, status == process::Io_status::CLOSED);
+#endif
         if (status == process::Io_status::TRANSFERRED) {
             return;
         }
@@ -2416,6 +2425,14 @@ std::optional<bool> Generation_client::native_cleanup_result_for_tests() const
 {
     return m_impl->observed_native_cleanup_result;
 }
+
+#if defined(__APPLE__)
+void Generation_client::set_control_write_probe_for_tests(std::function<void(int, std::optional<bool>)> probe)
+{
+    Q_ASSERT(m_impl->state == State::NOT_STARTED);
+    m_impl->control_write_probe = std::move(probe);
+}
+#endif
 
 void Generation_client::reject_next_link_enqueue_for_tests()
 {

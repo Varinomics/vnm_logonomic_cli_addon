@@ -16,6 +16,10 @@
 #include <QThread>
 #include <QTimer>
 
+#if defined(__APPLE__) && defined(LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS)
+#include <vnm_process_custody/process_pipe.h>
+#endif
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #else
@@ -26,6 +30,7 @@
 #include <atomic>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -112,12 +117,14 @@ const logonomic::Native_child_custody_callbacks* unconfirmed_native_family()
 
 enum class Stop { ORDERLY, DIRECT_SHUTDOWN, FORCED, FAULT, SHUTDOWN_DURING_IDLE, UNSOLICITED_EXIT, UNCONFIRMED };
 
-bool exercise_activation(host::Activation_context context, Stop stop)
+bool exercise_activation(host::Activation_context context, Stop stop,
+    const std::function<void(host::Generation_client&)>& configure = {})
 {
     const auto& pair = context.adopted_capabilities.front();
     const auto scratch = QDir(context.roots.scratch_root).filePath(
         context.record.package_id + '/' + QString::fromLatin1(context.activation_nonce));
     host::Generation_client client(context);
+    if (configure) configure(client);
     host::Request_broker broker(client);
     QEventLoop loop;
     QTimer writer_check;
@@ -166,18 +173,28 @@ bool exercise_activation(host::Activation_context context, Stop stop)
         }
     });
 
-    QTimer membership_check;
+    QTimer cleanup_check;
     if (stop == Stop::UNCONFIRMED) {
-        QObject::connect(&membership_check, &QTimer::timeout, &loop, [&]() {
+        QObject::connect(&cleanup_check, &QTimer::timeout, &loop, [&]() {
             if (g_unconfirmed_custodian.load() != 0) {
-                membership_check.stop();
+                cleanup_check.stop();
                 // The reader has its final answer. Bound the wait for the
                 // broker-thread disposition even if it is never delivered.
                 QTimer::singleShot(1000, &loop, &QEventLoop::quit);
             }
         });
-        membership_check.start(25);
+        cleanup_check.start(25);
     }
+#if defined(__APPLE__) && defined(LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS)
+    if (configure) {
+        // A discarded receipt withholds finished(). End the test once the
+        // reader has published its real terminal result in either case.
+        QObject::connect(&cleanup_check, &QTimer::timeout, &loop, [&]() {
+            if (client.native_cleanup_result_for_tests().has_value()) loop.quit();
+        });
+        cleanup_check.start(25);
+    }
+#endif
 
     const auto request = sdk::encode_discover_request(
         sdk::Json_value::object(), context.roots.per_user_root.toStdString(), sdk::host_platform_id());
@@ -326,6 +343,31 @@ int main(int argc, char** argv)
     host::Activation_context context{*record, roots, args[2], args[3], platform,
         {{QStringLiteral("launcher-discovery"), 1}}};
     context.activation_nonce = QByteArray::fromStdString(sdk::random_nonce_hex());
+#if defined(__APPLE__) && defined(LOGONOMIC_ENABLE_CLI_PROVIDER_TEST_HOOKS)
+    if (scenario == "closed_control") {
+        std::atomic_bool exited_before_write = false;
+        std::atomic_bool peer_closed_at_write = false;
+        const auto probe = [&](int exit_observer, std::optional<bool> peer_closed) {
+            if (peer_closed.has_value()) {
+                peer_closed_at_write.store(*peer_closed);
+                return;
+            }
+            // Keep the force request unsent while the slow fixture cooperates.
+            // The original custodian queues Reaped and exits. Its observer
+            // becomes readable without consuming the generation reader's wait.
+            vnm::process_custody::Wait_entry exit;
+            exit.handle    = exit_observer;
+            exit.want_read = true;
+            const int timeout_ms = 5 * sdk::limits::k_shutdown_grace_ms;
+            exited_before_write.store(vnm::process_custody::wait_ready(&exit, 1, timeout_ms) == 1 && exit.readable);
+        };
+        const bool orderly = exercise_activation(context, Stop::ORDERLY, [&](host::Generation_client& client) {
+            client.set_control_write_probe_for_tests(probe);
+        });
+        return check(exited_before_write.load() && peer_closed_at_write.load(),
+            "the real control write found the exited custodian's socket closed") && orderly ? 0 : 1;
+    }
+#endif
     if (scenario == "unconfirmed") {
         context.native_family = &unconfirmed_native_family;
         return exercise_activation(context, Stop::UNCONFIRMED) ? 0 : 1;

@@ -178,6 +178,12 @@ public:
     // The real terminal callback has processed this native cleanup result;
     // absence means it has not arrived, not that custody is settled.
     std::optional<bool> native_cleanup_result_for_tests() const;
+#if defined(__APPLE__)
+    // Install before start. The reader calls the probe before a control write
+    // with no result, then reports whether it found the peer closed.
+    void set_control_write_probe_for_tests(
+        std::function<void(int exit_observer, std::optional<bool> peer_closed)> probe);
+#endif
 
     // Pauses the custody worker before its first filesystem, process or I/O
     // operation. The hook itself runs on that worker and is empty normally.
