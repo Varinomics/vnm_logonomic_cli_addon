@@ -18,9 +18,13 @@ add-on together. The [contract index](README.md) covers the package and wire for
 | Fixture adapter and packages | [fixtures/](../fixtures/) | the provider-unknown fixture adapter, the fixture package roster, and the transcript scripts shared with Logonomic's tests |
 | Tests | [tests/](../tests/) | the SDK's own test executable and scripts, including the embedded-build comparison with its embedding host and fixture package project |
 
-The SDK includes npm-generated Windows launcher templates. Preserve the ISC
-copyright and permission notice in [npm_node_shim.cpp](../src/npm_node_shim.cpp)
-when redistributing that material. The optional
+For binary redistribution of the SDK or its tools, include the
+[Varinomics BSD 2-Clause license](../../../LICENSE) with the distribution.
+The Windows static SDK library also contains npm-generated launcher templates.
+Include the [npm cmd-shim ISC notice](../notices/npm-cmd-shim.txt) when distributing
+that archive or a binary containing the templates from `npm_node_shim_entry`.
+
+The optional
 [filesystem lifecycle observer](filesystem_lifecycle_observer.md) has its own
 target for providers that use the maintained filesystem observation service.
 For protocol fault tests, the adapter runtime exposes `write_raw`, and

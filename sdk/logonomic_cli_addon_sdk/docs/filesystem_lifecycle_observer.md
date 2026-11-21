@@ -1,10 +1,10 @@
 # Filesystem lifecycle observer component
 
-`Filesystem_lifecycle_observer` is an opt-in implementation component for
-providers using `lifecycle-events@2`, `lifecycle-correlation-lifetime@1` and the
-maintained `vnm_filesystem_observation` service. Grok, Qwen and Kimi
-share this driver. Their native hook admission, path discovery, parsers and
-terminal-evidence rules remain provider code.
+`Filesystem_lifecycle_observer` is an opt-in SDK component for providers using
+`lifecycle-events@2` and `lifecycle-correlation-lifetime@1`. It uses the
+[filesystem observation service](https://github.com/Varinomics/vnm_filesystem_observation)
+to watch native session files while a session is active. The provider decides
+which paths to watch and interprets file changes as session events.
 
 ## Build and ownership
 

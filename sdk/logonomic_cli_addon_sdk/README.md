@@ -60,7 +60,7 @@ requires agreement between the indexed capability declaration, the adapter's
 handshake and the target desktop's supported versions. Each capability
 defines its own prerequisites. Check the desktop's
 `cli-addon-core-compatibility.json` when choosing what to implement. To
-pin your SDK checkout or find the native qualification evidence, see
+select an SDK revision and test your package against an installed desktop, see
 [Match a desktop release](../../README.md#match-a-desktop-release).
 [Package layout](docs/package_contract.md#package-layout-and-authority) ·
 [Process environment](docs/process_contract.md) · [Core protocol](docs/core_protocol.md)
@@ -74,6 +74,12 @@ asset. An activated adapter runs native code with the user's account
 permissions. Install packages from a source you trust.
 [DeskTool package source](examples/desktool/package/) ·
 [Capability contracts](docs/README.md)
+
+If you distribute a binary that includes SDK code, include the SDK's
+copyright notice, conditions and disclaimer with the distribution. Provide
+these alongside any license you select for your own adapter and the notices
+for third-party material you include. [SDK license](../../LICENSE) ·
+[SDK third-party material](docs/sdk_tools.md#tools-and-source-layout)
 
 ## Writing a helper
 

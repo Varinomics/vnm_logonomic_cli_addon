@@ -26,8 +26,10 @@ endif()
 
 logonomic_cli_addon_package_platform(desktool_platform)
 configure_file(package/logonomic-cli-addon.json.in generated/logonomic-cli-addon.json @ONLY)
+get_target_property(desktool_sdk_source logonomic_cli_addon_sdk::sdk SOURCE_DIR)
 logonomic_cli_addon_add_package(desktool_package "${desktool_package_id}" desktool_package_directory
-    ADAPTER desktool_adapter)
+    ADAPTER desktool_adapter
+    PROJECT_LICENSE "${desktool_sdk_source}/../../LICENSE")
 
 if(LOGONOMIC_CLI_ADDON_EMBEDDED)
     return()

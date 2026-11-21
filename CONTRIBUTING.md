@@ -27,6 +27,10 @@ repository. Maintainers select accepted provider revisions for official
 release, signing and desktop distribution. Local tests use the checked-out
 sources and need no signing or release credentials.
 
+In provider repositories with a manual GitHub Actions check, maintainers can
+run the same provider tests on native hosted runners and validate the
+exported package with the SDK. [Standalone provider workflow](.github/workflows/provider-standalone.yml)
+
 ## Working on the host
 
 Within the shared host, the [request broker](host/src/logonomic_cli_addon_request_broker.h)

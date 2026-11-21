@@ -1,6 +1,7 @@
 """Exercise the public package recipe's selected sidecar source and rebuilds."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ if(GENERATED_CAPABILITIES)
     file(MAKE_DIRECTORY "${capabilities}")
     configure_file(generated-sidecar.json "${capabilities}/fixture-origin@1.json" COPYONLY)
     logonomic_cli_addon_add_package(probe_package org.example.capabilities-fixture package_directory
-        ADAPTER probe CAPABILITIES_DIRECTORY "${capabilities}")
+        ADAPTER probe CAPABILITIES_DIRECTORY "${capabilities}" PROJECT_LICENSE LICENSE)
 else()
     set(capabilities "${CMAKE_CURRENT_SOURCE_DIR}/package/capabilities")
     logonomic_cli_addon_add_package(probe_package org.example.capabilities-fixture package_directory ADAPTER probe)
@@ -62,6 +63,11 @@ def exercise(options, root, generated):
     (source / "CMakeLists.txt").write_text(PROJECT, encoding="utf-8")
     (source / "probe.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
     (source / "manifest.json.in").write_text(json.dumps(MANIFEST), encoding="utf-8")
+    project_license = source / "LICENSE"
+    project_license.write_bytes(b"Fixture project license\r\nSecond line\r\n")
+    vendor_notice = source / "package/notices/vendor.txt"
+    vendor_notice.parent.mkdir()
+    vendor_notice.write_bytes(b"Fixture vendor terms\n")
     original = source / "package/capabilities/fixture-origin@1.json"
     source_only = source / "package/capabilities/fixture-source-only@1.json"
     template = source / "generated-sidecar.json"
@@ -93,6 +99,20 @@ def exercise(options, root, generated):
         actual = {path.name: path.read_bytes() for path in (package / "capabilities").glob("*")}
         if actual != expected:
             raise AssertionError(f"Sidecar source/membership mismatch: {actual!r} != {expected!r}")
+        if (package / "notices/vendor.txt").read_bytes() != vendor_notice.read_bytes():
+            raise AssertionError("The vendor notice must survive unchanged")
+        packaged_license = package / "notices/LICENSE"
+        if generated:
+            license_bytes = project_license.read_bytes()
+            if packaged_license.read_bytes() != license_bytes:
+                raise AssertionError("PROJECT_LICENSE must copy the caller's exact bytes")
+            files = json.loads((package / "package.files.json").read_bytes())["files"]
+            notice = next(entry for entry in files if entry["path"] == "notices/LICENSE")
+            if (notice["sha256"] != hashlib.sha256(license_bytes).hexdigest()
+                    or notice["resource"] != {"kind": "notice", "origin": "package"}):
+                raise AssertionError(f"Incorrect project license index entry: {notice}")
+        elif packaged_license.exists():
+            raise AssertionError("A root license is packaged only on explicit request")
         run(options.validate_tool, package, "--platform", platform)
 
     expected = {"fixture-origin@1.json": template.read_bytes() if generated else original.read_bytes()}
@@ -105,6 +125,12 @@ def exercise(options, root, generated):
     assemble()
     if unchanged != (index.stat().st_mtime_ns, index.read_bytes()):
         raise AssertionError("An unchanged package was unnecessarily reassembled")
+
+    project_license.write_bytes(b"Updated fixture project license, with no trailing newline")
+    assemble()
+    verify(expected)
+    if not generated and unchanged != (index.stat().st_mtime_ns, index.read_bytes()):
+        raise AssertionError("An unselected root license must not trigger package assembly")
 
     changed = template if generated else original
     changed.write_bytes(sidecar("fixture-origin", "changed"))

@@ -504,7 +504,7 @@ which is valid before and after its `project()`.
   own, the package's subdirectory when embedded.
 - `logonomic_cli_addon_add_package(<target> <id> <out> ADAPTER <target>
   [HELPERS <targets>...] [INDEX_ARGUMENTS <arguments>...]
-  [CAPABILITIES_DIRECTORY <absolute-directory>])` assembles one standard
+  [CAPABILITIES_DIRECTORY <absolute-directory>] [PROJECT_LICENSE <file>])` assembles one standard
   native package per project and returns its directory. The caller configures
   `generated/logonomic-cli-addon.json` first. The recipe tracks and copies all
   files under `package/{assets,capabilities,provenance,notices}`, copies the
@@ -521,6 +521,10 @@ which is valid before and after its `project()`.
   membership participate in the assembly dependencies, including additions
   with older timestamps and removals, and the ordinary index seals the copied
   bytes. Omitting this argument preserves the source-directory behavior.
+  A caller can add its project license with `PROJECT_LICENSE <file>`. A relative
+  path starts in the caller's source directory. The recipe tracks the file,
+  copies its exact bytes to `notices/LICENSE`, and includes them in the index.
+  The selected license and `package/notices` must have distinct destinations.
 - `logonomic_cli_addon_install_package(<directory> <id> [TARGET <target>])`
   exports a fresh artifact at install time on its own, where `TARGET` is
   accepted and ignored. Embedded, `TARGET` is required and names the package's

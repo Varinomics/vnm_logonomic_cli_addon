@@ -172,9 +172,11 @@ endfunction()
 #
 # logonomic_cli_addon_add_package(<target> <package_id> <out_directory>
 #     ADAPTER <target> [HELPERS <targets>...] [INDEX_ARGUMENTS <arguments>...]
-#     [CAPABILITIES_DIRECTORY <absolute-directory>])
+#     [CAPABILITIES_DIRECTORY <absolute-directory>] [PROJECT_LICENSE <file>])
+# PROJECT_LICENSE copies that file to notices/LICENSE before indexing. Relative
+# paths are resolved in the calling source directory.
 function(logonomic_cli_addon_add_package target package_id out_directory)
-    cmake_parse_arguments(PARSE_ARGV 3 ARG "" "ADAPTER;CAPABILITIES_DIRECTORY" "HELPERS;INDEX_ARGUMENTS")
+    cmake_parse_arguments(PARSE_ARGV 3 ARG "" "ADAPTER;CAPABILITIES_DIRECTORY;PROJECT_LICENSE" "HELPERS;INDEX_ARGUMENTS")
     if(ARG_UNPARSED_ARGUMENTS OR ARG_KEYWORDS_MISSING_VALUES OR
        NOT DEFINED ARG_ADAPTER OR ARG_ADAPTER STREQUAL "")
         message(FATAL_ERROR
@@ -220,6 +222,11 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
     set(input_command "${CMAKE_COMMAND}")
     set(input_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package_inputs.cmake")
     set(input_stamp "${CMAKE_CURRENT_BINARY_DIR}/package-inputs.txt")
+    if(DEFINED ARG_PROJECT_LICENSE)
+        cmake_path(ABSOLUTE_PATH ARG_PROJECT_LICENSE NORMALIZE OUTPUT_VARIABLE project_license)
+        list(APPEND package_files "${project_license}")
+        list(APPEND input_command "-Dproject_license=${project_license}")
+    endif()
     foreach(directory IN LISTS input_directories)
         set(source "${CMAKE_CURRENT_SOURCE_DIR}/package/${directory}")
         if(directory STREQUAL "capabilities")
@@ -250,6 +257,10 @@ function(logonomic_cli_addon_add_package target package_id out_directory)
         list(APPEND package_index_dependencies "${input_script}")
     else()
         file(GENERATE OUTPUT "${input_stamp}" CONTENT "${capabilities_directory}\n${package_files}\n")
+        if(DEFINED ARG_PROJECT_LICENSE)
+            list(APPEND package_index_dependencies "${input_script}")
+            list(APPEND copy_directories COMMAND ${input_command} "-Ddestination=${package_directory}" -P "${input_script}")
+        endif()
     endif()
     add_custom_command(
         OUTPUT "${package_directory}/package.files.json"
