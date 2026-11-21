@@ -30,14 +30,12 @@ bool report(Contract_failure* out_failure, const char* reason_code, std::string 
 
 bool has_nul(std::string_view text) { return text.find('\0') != std::string_view::npos; }
 
-/// One run of the wrapper: whether it started, whether it exited by itself
-/// within the deadline and within the stdout bound, and what it printed.
+/// One wrapper attempt. Only a completed invocation supplies its own exit code.
 struct Wrapper_run
 {
-    bool        started   = false;
-    bool        completed = false;
-    int         exit_code = 0;
+    int         exit_code = k_helper_exit_transport_failure;
     std::string stdout_bytes;
+    std::optional<Helper_local_diagnostic> local_diagnostic;
 };
 
 void reap(process::Child_process& child)
@@ -60,6 +58,7 @@ Wrapper_run run_wrapper(
 {
     Wrapper_run run;
     if (cancellation_requested && cancellation_requested()) {
+        run.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::CANCELLED, "Cancelled before starting the wrapper."};
         return run;
     }
     process::Spawn_request request;
@@ -73,12 +72,14 @@ Wrapper_run run_wrapper(
     // Job (the no-detach rule): the wrapper is not isolated.
     request.isolate = false;
 
-    std::string spawn_error;
-    std::unique_ptr<process::Child_process> child = process::Child_process::spawn(request, &spawn_error);
+    std::uint32_t native_error = 0;
+    std::unique_ptr<process::Child_process> child = process::Child_process::spawn(request, nullptr, &native_error);
     if (!child) {
+        run.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::SPAWN_FAILED,
+            native_error ? "Could not start the wrapper, native error " + std::to_string(native_error) + "."
+                         : "The wrapper launch arguments or environment could not be prepared."};
         return run;
     }
-    run.started = true;
 
     const Clock::time_point deadline = Clock::now() + std::chrono::milliseconds(deadline_ms);
     std::size_t written      = 0;
@@ -109,20 +110,27 @@ Wrapper_run run_wrapper(
         if (exit.has_value() && (stdout_eof || (drain_deadline.has_value() && now >= *drain_deadline))) {
             break;
         }
-        if (now >= deadline || (cancellation_requested && cancellation_requested())) {
+        const bool timed_out = now >= deadline;
+        if (timed_out || (cancellation_requested && cancellation_requested())) {
             child->kill();
             reap(*child);
+            run.local_diagnostic = timed_out
+                ? Helper_local_diagnostic{Helper_local_failure::TIMED_OUT,
+                      "Wrapper exceeded " + std::to_string(deadline_ms) + " ms."}
+                : Helper_local_diagnostic{Helper_local_failure::CANCELLED, "Cancelled while waiting for the wrapper."};
             return run;
         }
         const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
         const int  timeout   = (int)std::min<long long>(remaining, exit.has_value() ? k_post_exit_drain_ms : 100);
         const process::Activity activity = child->wait_activity(timeout, !stdin_closed);
-        run.stdout_bytes += activity.stdout_bytes;
-        if (run.stdout_bytes.size() > max_stdout_bytes) {
+        if (activity.stdout_bytes.size() > max_stdout_bytes - run.stdout_bytes.size()) {
             child->kill();
             reap(*child);
+            run.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::OUTPUT_TOO_LARGE,
+                "Wrapper stdout exceeded " + std::to_string(max_stdout_bytes) + " bytes."};
             return run;
         }
+        run.stdout_bytes += activity.stdout_bytes;
         if (activity.stdout_eof) {
             stdout_eof = true;
         }
@@ -131,31 +139,42 @@ Wrapper_run run_wrapper(
             drain_deadline = Clock::now() + std::chrono::milliseconds(k_post_exit_drain_ms);
         }
     }
-    run.completed = !exit->signaled;
-    run.exit_code = exit->code;
+    if (exit->signaled) {
+        run.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::ABNORMAL_EXIT,
+            "Wrapper terminated with native status " + std::to_string(exit->code) + "."};
+    }
+    else {
+        run.exit_code = exit->code;
+        if (run.exit_code != k_helper_exit_committed && run.exit_code != k_helper_exit_pending) {
+            run.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::WRAPPER_FAILED,
+                "Wrapper returned exit code " + std::to_string(run.exit_code) + "."};
+        }
+    }
     return run;
 }
 
-Provider_event_outcome refused(const char* reason_code)
+Provider_event_outcome refused(const char* reason_code, Provider_event_identity identity)
 {
     Provider_event_outcome outcome;
     outcome.reason    = reason_code;
     outcome.exit_code = k_helper_exit_invalid_arguments;
+    outcome.identity  = std::move(identity);
+    outcome.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::INVALID_ARGUMENTS, reason_code};
     return outcome;
 }
 
-Provider_event_outcome transport_failure(int exit_code)
-{
-    Provider_event_outcome outcome;
-    outcome.exit_code = exit_code;
-    return outcome;
-}
-
-Title_instruction_result title_instruction_transport_failure(int exit_code)
+Title_instruction_result invalid_title_instruction_arguments()
 {
     Title_instruction_result result;
-    result.exit_code = exit_code;
+    result.exit_code = k_helper_exit_invalid_arguments;
+    result.local_diagnostic = Helper_local_diagnostic{Helper_local_failure::INVALID_ARGUMENTS, "Invalid title instruction arguments."};
     return result;
+}
+
+Helper_local_diagnostic invalid_wrapper_response(std::size_t bytes)
+{
+    return {Helper_local_failure::INVALID_RESPONSE,
+        "Wrapper returned " + std::to_string(bytes) + " bytes without a valid committed response."};
 }
 
 std::optional<Title_instruction_result> parse_title_instruction_result(
@@ -377,24 +396,32 @@ Provider_event_outcome Helper_client::deliver_provider_event(
     std::string_view  idempotency_key,
     std::string_view  transition_nonce)
 {
+    return deliver_provider_event({std::string(event_name), body,
+        {idempotency_key.empty() ? random_nonce_hex() : std::string(idempotency_key),
+         transition_nonce.empty() ? random_nonce_hex() : std::string(transition_nonce)}});
+}
+
+Provider_event_outcome Helper_client::deliver_provider_event(Prepared_provider_event delivery)
+{
+    const auto& event_name = delivery.event_name;
     if (event_name.empty() || event_name.size() > limits::k_max_provider_event_name_bytes || has_nul(event_name)) {
-        return refused(reason::k_payload_too_large);
+        return refused(reason::k_payload_too_large, std::move(delivery.identity));
     }
-    if (!body.is_object()) {
-        return refused(reason::k_frame_violation);
+    if (!delivery.body.is_object()) {
+        return refused(reason::k_frame_violation, std::move(delivery.identity));
     }
-    const std::string key = idempotency_key.empty() ? random_nonce_hex() : std::string(idempotency_key);
+    const auto& key = delivery.identity.idempotency_key;
     if (key.size() > limits::k_max_idempotency_key_bytes || !is_plain_argument(key)) {
-        return refused(reason::k_frame_violation);
+        return refused(reason::k_frame_violation, std::move(delivery.identity));
     }
-    const std::string nonce = transition_nonce.empty() ? random_nonce_hex() : std::string(transition_nonce);
+    const auto& nonce = delivery.identity.transition_nonce;
     if (!is_valid_transition_nonce_hex(nonce)) {
-        return refused(reason::k_frame_violation);
+        return refused(reason::k_frame_violation, std::move(delivery.identity));
     }
 
     Json_value event = Json_value::object();
-    event.set("name", Json_value(event_name));
-    event.set("body", body);
+    event.set("name", Json_value(std::move(delivery.event_name)));
+    event.set("body", std::move(delivery.body));
     Json_value arguments = Json_value::object();
     arguments.set("idempotency_key",  Json_value(key));
     arguments.set("transition_nonce", Json_value(nonce));
@@ -407,17 +434,20 @@ Provider_event_outcome Helper_client::deliver_provider_event(
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
-    if (!run.started || !run.completed) {
-        return transport_failure(k_helper_exit_transport_failure);
+    Provider_event_outcome outcome;
+    outcome.exit_code = run.exit_code;
+    outcome.local_diagnostic = run.local_diagnostic;
+    if (run.exit_code == k_helper_exit_committed) {
+        if (auto parsed = parse_committed_outcome(run.stdout_bytes)) {
+            outcome = std::move(*parsed);
+        }
+        else {
+            outcome.exit_code = k_helper_exit_transport_failure;
+            outcome.local_diagnostic = invalid_wrapper_response(run.stdout_bytes.size());
+        }
     }
-    if (run.exit_code != k_helper_exit_committed) {
-        return transport_failure(run.exit_code);
-    }
-    std::optional<Provider_event_outcome> outcome = parse_committed_outcome(run.stdout_bytes);
-    if (!outcome.has_value()) {
-        return transport_failure(k_helper_exit_transport_failure);
-    }
-    return std::move(*outcome);
+    outcome.identity = std::move(delivery.identity);
+    return outcome;
 }
 
 int Helper_client::acknowledge_provider_event(
@@ -436,9 +466,7 @@ int Helper_client::acknowledge_provider_event(
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
-    return run.started && run.completed
-        ? run.exit_code
-        : k_helper_exit_transport_failure;
+    return run.exit_code;
 }
 
 int Helper_client::set_title(std::string_view title)
@@ -453,7 +481,7 @@ int Helper_client::set_title(std::string_view title)
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
-    return run.started && run.completed ? run.exit_code : k_helper_exit_transport_failure;
+    return run.exit_code;
 }
 
 Title_instruction_result Helper_client::request_title_instruction(
@@ -463,7 +491,7 @@ Title_instruction_result Helper_client::request_title_instruction(
     std::optional<Model_context_delivery> delivery)
 {
     if (!is_plain_argument(source) || !is_plain_argument(hook_event_name)) {
-        return title_instruction_transport_failure(k_helper_exit_invalid_arguments);
+        return invalid_title_instruction_arguments();
     }
     Json_value request = Json_value::object();
     request.set("source", Json_value(source));
@@ -472,7 +500,7 @@ Title_instruction_result Helper_client::request_title_instruction(
     if (delivery) {
         Json_value record = encode_model_context_delivery(*delivery);
         if (!decode_model_context_delivery(record, nullptr)) {
-            return title_instruction_transport_failure(k_helper_exit_invalid_arguments);
+            return invalid_title_instruction_arguments();
         }
         request.set("delivery", std::move(record));
     }
@@ -483,19 +511,17 @@ Title_instruction_result Helper_client::request_title_instruction(
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
-    if (!run.started || !run.completed ||
-        run.exit_code != k_helper_exit_committed)
-    {
-        return title_instruction_transport_failure(
-            run.started && run.completed
-                ? run.exit_code
-                : k_helper_exit_transport_failure);
+    Title_instruction_result result;
+    result.exit_code = run.exit_code;
+    result.local_diagnostic = run.local_diagnostic;
+    if (run.exit_code == k_helper_exit_committed) {
+        if (auto parsed = parse_title_instruction_result(run.stdout_bytes)) {
+            return std::move(*parsed);
+        }
+        result.exit_code = k_helper_exit_transport_failure;
+        result.local_diagnostic = invalid_wrapper_response(run.stdout_bytes.size());
     }
-    const std::optional<Title_instruction_result> result =
-        parse_title_instruction_result(run.stdout_bytes);
-    return result.has_value()
-        ? *result
-        : title_instruction_transport_failure(k_helper_exit_transport_failure);
+    return result;
 }
 
 int Helper_client::show_changed_files(const std::vector<std::string>& paths)
@@ -515,7 +541,7 @@ int Helper_client::show_changed_files(const std::vector<std::string>& paths)
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
-    return run.started && run.completed ? run.exit_code : k_helper_exit_transport_failure;
+    return run.exit_code;
 }
 
 int Helper_client::show_diff(std::string_view manifest_json)
@@ -532,7 +558,7 @@ int Helper_client::show_diff(std::string_view manifest_json)
         limits::k_max_helper_client_stdout_bytes,
         limits::k_helper_client_wrapper_deadline_ms,
         m_cancellation_requested);
-    return run.started && run.completed ? run.exit_code : k_helper_exit_transport_failure;
+    return run.exit_code;
 }
 
 } // namespace logonomic::cli_addon

@@ -202,6 +202,8 @@ struct Provider_event_outcome
     std::optional<std::uint64_t> epoch;
     std::optional<Json_value>    helper_response;
     int                          exit_code = 1;
+    Provider_event_identity      identity;            // key and nonce from this attempt
+    std::optional<Helper_local_diagnostic> local_diagnostic;
 };
 
 class Helper_client
@@ -213,6 +215,7 @@ public:
         std::string_view event_name, const Json_value& body,
         std::string_view idempotency_key = {},      // minted (32 hex) when empty
         std::string_view transition_nonce = {});    // minted (32 hex) when empty
+    Provider_event_outcome deliver_provider_event(Prepared_provider_event delivery);
     int acknowledge_provider_event(std::string_view idempotency_key);
     int set_title(std::string_view title);                       // logonomic_vnmctl set-title
     Title_instruction_result request_title_instruction(
@@ -222,6 +225,32 @@ public:
     int show_diff(std::string_view manifest_json);
 };
 ```
+
+Prepare an event before dispatch when its outcome must be recoverable. The
+prepared object owns the name, body and both identities. For recovery across
+helper processes, retain those fields before the first call. Pass the same
+event on retry within the live Session's replay window.
+
+```cpp
+const Prepared_provider_event delivery{"NativeConversation", body};
+auto outcome = client.deliver_provider_event(delivery);
+// After a lost reply, repeat client.deliver_provider_event(delivery).
+if (outcome.committed) {
+    consume(outcome);
+    client.acknowledge_provider_event(delivery.identity.idempotency_key);
+}
+```
+
+The convenience call also returns the attempted key and nonce in
+`outcome.identity`, including on cancellation, a lost reply, or pending
+status. Committed refusals carry the host's reason. Pending retains exit
+code 4. Neither has a local diagnostic. For a local failure, the optional
+`local_diagnostic` identifies invalid arguments, wrapper startup failure,
+cancellation, timeout, excessive stdout, abnormal termination, wrapper
+failure, or an invalid committed response. Its developer detail contains
+fixed SDK text and relevant numeric status, duration or size. Command
+arguments, environment values and wrapper output remain private. The SDK
+does not log these diagnostics.
 
 `request_title_instruction` returns `Title_instruction_result`. A completed,
 accepted result always carries `instruction_required` and the exact

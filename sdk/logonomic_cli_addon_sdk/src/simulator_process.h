@@ -62,7 +62,8 @@ struct Write_result
 class Child_process
 {
 public:
-    static std::unique_ptr<Child_process> spawn(const Spawn_request& request, std::string* out_error);
+    static std::unique_ptr<Child_process> spawn(const Spawn_request& request, std::string* out_error,
+        std::uint32_t* out_native_error = nullptr);
 
     virtual ~Child_process() = default;
 

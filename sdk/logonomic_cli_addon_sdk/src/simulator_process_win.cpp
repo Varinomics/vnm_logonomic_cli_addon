@@ -526,11 +526,14 @@ struct Inheritable_pipe
 
 } // namespace
 
-std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request, std::string* out_error)
+std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request, std::string* out_error,
+    std::uint32_t* out_native_error)
 {
-    const auto fail = [out_error](const std::string& text) -> std::unique_ptr<Child_process> {
+    if (out_native_error) *out_native_error = 0;
+    const auto fail = [out_error, out_native_error](const std::string& text, DWORD code) -> std::unique_ptr<Child_process> {
+        if (out_native_error) *out_native_error = code;
         if (out_error != nullptr) {
-            *out_error = text + " (Win32 error " + std::to_string(::GetLastError()) + ")";
+            *out_error = text + " (Win32 error " + std::to_string(code) + ")";
         }
         return nullptr;
     };
@@ -577,20 +580,21 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
     Inheritable_pipe stdout_pipe;
     Inheritable_pipe stderr_pipe;
     if (!stdin_pipe.open(true) || !stdout_pipe.open(false) || !stderr_pipe.open(false)) {
-        return fail("CreatePipe");
+        return fail("CreatePipe", ::GetLastError());
     }
 
     HANDLE job = nullptr;
     if (request.isolate) {
         job = ::CreateJobObjectW(nullptr, nullptr);
         if (job == nullptr) {
-            return fail("CreateJobObjectW");
+            return fail("CreateJobObjectW", ::GetLastError());
         }
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if (!::SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+            const DWORD code = ::GetLastError();
             ::CloseHandle(job);
-            return fail("SetInformationJobObject");
+            return fail("SetInformationJobObject", code);
         }
     }
 
@@ -599,14 +603,16 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
     std::vector<unsigned char> attribute_storage(attribute_size);
     auto* attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attribute_storage.data());
     if (!::InitializeProcThreadAttributeList(attributes, 1, 0, &attribute_size)) {
+        const DWORD code = ::GetLastError();
         close_handle(job);
-        return fail("InitializeProcThreadAttributeList");
+        return fail("InitializeProcThreadAttributeList", code);
     }
     HANDLE inherited[3] = {stdin_pipe.read, stdout_pipe.write, stderr_pipe.write};
     if (!::UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), nullptr, nullptr)) {
+        const DWORD code = ::GetLastError();
         ::DeleteProcThreadAttributeList(attributes);
         close_handle(job);
-        return fail("UpdateProcThreadAttribute");
+        return fail("UpdateProcThreadAttribute", code);
     }
 
     STARTUPINFOEXW startup{};
@@ -629,18 +635,20 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
         working_directory.empty() ? nullptr : working_directory.c_str(),
         &startup.StartupInfo,
         &information);
+    const DWORD create_error = created ? ERROR_SUCCESS : ::GetLastError();
     ::DeleteProcThreadAttributeList(attributes);
     if (!created) {
         close_handle(job);
-        return fail("CreateProcessW " + request.executable);
+        return fail("CreateProcessW " + request.executable, create_error);
     }
 
     if (job != nullptr && !::AssignProcessToJobObject(job, information.hProcess)) {
+        const DWORD code = ::GetLastError();
         ::TerminateProcess(information.hProcess, 1);
         ::CloseHandle(information.hThread);
         ::CloseHandle(information.hProcess);
         close_handle(job);
-        return fail("AssignProcessToJobObject");
+        return fail("AssignProcessToJobObject", code);
     }
     ::ResumeThread(information.hThread);
     ::CloseHandle(information.hThread);

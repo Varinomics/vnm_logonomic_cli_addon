@@ -729,7 +729,10 @@ int fake_provider_event_deliver(int argc, char** argv)
     if (argc == 4 && std::strcmp(argv[1], "provider-event") == 0 &&
         std::strcmp(argv[2], "acknowledge") == 0)
     {
-        return addon::k_helper_exit_committed;
+        if (std::strcmp(argv[3], "committed-key") == 0) return addon::k_helper_exit_committed;
+        if (!addon::is_valid_generation_nonce_hex(argv[3])) return addon::k_helper_exit_invalid_arguments;
+        const auto journal = fs::temp_directory_path() / (std::string("logonomic-sdk-replay-") + argv[3]);
+        return fs::remove(journal) ? addon::k_helper_exit_committed : addon::k_helper_exit_transport_failure;
     }
     if (argc != 4 || std::strcmp(argv[2], "deliver") != 0 || std::strcmp(argv[3], "--args-stdin") != 0) {
         std::fprintf(stderr, "fake vnmctl: provider-event deliver --args-stdin expected\n");
@@ -754,6 +757,17 @@ int fake_provider_event_deliver(int argc, char** argv)
     const std::string& scenario = name->as_string();
     addon::Json_value received = addon::Json_value::object();
     received.set("received", *arguments);
+    if (scenario == "LostReply" && addon::is_valid_generation_nonce_hex(key->as_string())) {
+        const auto journal = fs::temp_directory_path() / ("logonomic-sdk-replay-" + key->as_string());
+        const auto original = read_file(journal);
+        const auto bytes = addon::serialize_json(*arguments);
+        if (!original) {
+            if (!write_file(journal, bytes)) return addon::k_helper_exit_invalid_arguments;
+            return addon::k_helper_exit_transport_failure; // Host retained the outcome, reply was lost.
+        }
+        return answer(*original == bytes ? R"({"accepted":true,"epoch":3})" : R"({"accepted":false,"reason":"conflict"})",
+            addon::k_helper_exit_committed);
+    }
     if (scenario == "Committed") {
         addon::Json_value outcome = object_with({
             {"accepted", addon::Json_value(true)},
@@ -781,6 +795,7 @@ int fake_provider_event_deliver(int argc, char** argv)
         return answer(R"({"status":"pending"})", addon::k_helper_exit_pending);
     }
     if (scenario == "Garbage") {
+        std::fprintf(stderr, "private wrapper diagnostics should stay in the wrapper\n");
         return answer("this is not a committed outcome", addon::k_helper_exit_committed);
     }
     if (scenario == "Oversize") {
@@ -3055,6 +3070,15 @@ bool test_helper_client_contract()
     });
 
     const addon::Provider_event_outcome committed = client.deliver_provider_event("Committed", body);
+    const addon::Prepared_provider_event delivery{"LostReply", body};
+    const auto uncertain = client.deliver_provider_event(delivery);
+    SDK_CHECK(!uncertain.committed && uncertain.identity.idempotency_key == delivery.identity.idempotency_key &&
+        uncertain.identity.transition_nonce == delivery.identity.transition_nonce,
+        "loss of a reply preserves the prepared identities");
+    const auto replay = client.deliver_provider_event(delivery);
+    SDK_CHECK(replay.committed && replay.accepted && replay.epoch == 3 &&
+        client.acknowledge_provider_event(replay.identity.idempotency_key) == addon::k_helper_exit_committed,
+        "exact replay recovers the outcome and its original key releases the journal");
     SDK_CHECK(client.acknowledge_provider_event("committed-key") ==
         addon::k_helper_exit_committed,
         "Helper_client must invoke the explicit provider-event acknowledgement");
@@ -3074,6 +3098,9 @@ bool test_helper_client_contract()
         "the wrapper received exactly the three-member argument object");
     const addon::Json_value* minted_key   = received->find("idempotency_key");
     const addon::Json_value* minted_nonce = received->find("transition_nonce");
+    SDK_CHECK(minted_key && *minted_key == addon::Json_value(committed.identity.idempotency_key) &&
+        minted_nonce && *minted_nonce == addon::Json_value(committed.identity.transition_nonce),
+        "default delivery returns its wire identities");
     const addon::Json_value* sent_event   = received->find("event");
     SDK_CHECK(minted_key != nullptr && minted_key->is_string() &&
         addon::is_valid_generation_nonce_hex(minted_key->as_string()),
@@ -3098,16 +3125,23 @@ bool test_helper_client_contract()
         "a caller-supplied key and nonce pass through unchanged");
 
     const addon::Provider_event_outcome transport = client.deliver_provider_event("Transport", body);
-    SDK_CHECK(!transport.committed && transport.exit_code == addon::k_helper_exit_transport_failure,
+    SDK_CHECK(!transport.committed && transport.exit_code == addon::k_helper_exit_transport_failure &&
+        transport.local_diagnostic && transport.local_diagnostic->failure == addon::Helper_local_failure::WRAPPER_FAILED,
         "a transport failure reports exit 1 uncommitted");
     const addon::Provider_event_outcome pending = client.deliver_provider_event("Pending", body);
-    SDK_CHECK(!pending.committed && pending.exit_code == addon::k_helper_exit_pending,
+    SDK_CHECK(!pending.committed && pending.exit_code == addon::k_helper_exit_pending && !pending.local_diagnostic &&
+        !rejected.local_diagnostic && !committed.local_diagnostic,
         "a delivery still pending at the deadline reports exit 4 uncommitted");
     const addon::Provider_event_outcome garbage = client.deliver_provider_event("Garbage", body);
-    SDK_CHECK(!garbage.committed && garbage.exit_code == addon::k_helper_exit_transport_failure,
+    SDK_CHECK(!garbage.committed && garbage.exit_code == addon::k_helper_exit_transport_failure &&
+        garbage.local_diagnostic && garbage.local_diagnostic->failure == addon::Helper_local_failure::INVALID_RESPONSE &&
+        garbage.local_diagnostic->detail.find("private wrapper diagnostics") == std::string::npos &&
+        addon::is_valid_generation_nonce_hex(garbage.identity.idempotency_key) &&
+        addon::is_valid_transition_nonce_hex(garbage.identity.transition_nonce),
         "a malformed committed outcome is a transport failure");
     const addon::Provider_event_outcome oversize = client.deliver_provider_event("Oversize", body);
-    SDK_CHECK(!oversize.committed && oversize.exit_code == addon::k_helper_exit_transport_failure,
+    SDK_CHECK(!oversize.committed && oversize.exit_code == addon::k_helper_exit_transport_failure &&
+        oversize.local_diagnostic && oversize.local_diagnostic->failure == addon::Helper_local_failure::OUTPUT_TOO_LARGE,
         "stdout beyond k_max_helper_client_stdout_bytes is a transport failure");
     const addon::Provider_event_outcome unknown = client.deliver_provider_event("Unscripted", body);
     SDK_CHECK(!unknown.committed && unknown.exit_code == addon::k_helper_exit_invalid_arguments,
@@ -3211,10 +3245,18 @@ bool test_helper_client_contract()
     addon::Helper_environment missing_wrapper = *parsed;
     missing_wrapper.vnmctl_path = addon::path_to_utf8(test_executable().parent_path() / "no-such-vnmctl");
     addon::Helper_client absent(missing_wrapper);
-    SDK_CHECK(!absent.deliver_provider_event("Committed", body).committed &&
-        absent.deliver_provider_event("Committed", body).exit_code == addon::k_helper_exit_transport_failure &&
+    const auto missing = absent.deliver_provider_event("Committed", body);
+    SDK_CHECK(!missing.committed && missing.exit_code == addon::k_helper_exit_transport_failure &&
+        missing.local_diagnostic && missing.local_diagnostic->failure == addon::Helper_local_failure::SPAWN_FAILED &&
+        missing.local_diagnostic->detail.find("native error") != std::string::npos &&
         absent.set_title("title") == addon::k_helper_exit_transport_failure,
         "a wrapper that cannot be spawned is a transport failure");
+    addon::Helper_client cancelled(missing_wrapper, [] { return true; });
+    const auto stopped = cancelled.deliver_provider_event(delivery);
+    SDK_CHECK(!stopped.committed && stopped.local_diagnostic &&
+        stopped.local_diagnostic->failure == addon::Helper_local_failure::CANCELLED &&
+        stopped.identity.idempotency_key == delivery.identity.idempotency_key,
+        "pre-spawn cancellation has a distinct diagnostic and keeps the attempted delivery identity");
     return true;
 }
 

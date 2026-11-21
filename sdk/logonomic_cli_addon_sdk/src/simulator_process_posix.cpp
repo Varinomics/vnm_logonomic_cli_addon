@@ -330,11 +330,14 @@ public:
 
 } // namespace
 
-std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request, std::string* out_error)
+std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request, std::string* out_error,
+    std::uint32_t* out_native_error)
 {
-    const auto fail = [out_error](const std::string& text) -> std::unique_ptr<Child_process> {
+    if (out_native_error) *out_native_error = 0;
+    const auto fail = [out_error, out_native_error](const std::string& operation, int code) -> std::unique_ptr<Child_process> {
+        if (out_native_error) *out_native_error = (std::uint32_t)code;
         if (out_error != nullptr) {
-            *out_error = text;
+            *out_error = operation + ": " + std::strerror(code);
         }
         return nullptr;
     };
@@ -343,13 +346,13 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
     Pipe_pair stdout_pipe;
     Pipe_pair stderr_pipe;
     if (!stdin_pipe.open() || !stdout_pipe.open() || !stderr_pipe.open()) {
-        return fail(std::string("pipe2: ") + std::strerror(errno));
+        return fail("pipe2", errno);
     }
 
     posix_spawn_file_actions_t actions;
     int setup_error = ::posix_spawn_file_actions_init(&actions);
     if (setup_error != 0) {
-        return fail(std::string("spawn file actions: ") + std::strerror(setup_error));
+        return fail("spawn file actions", setup_error);
     }
     setup_error = ::posix_spawn_file_actions_adddup2(&actions, stdin_pipe.read_end, 0);
     if (setup_error == 0) {
@@ -372,14 +375,14 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
 #endif
     if (setup_error != 0) {
         ::posix_spawn_file_actions_destroy(&actions);
-        return fail(std::string("spawn file actions: ") + std::strerror(setup_error));
+        return fail("spawn file actions", setup_error);
     }
 
     posix_spawnattr_t attributes;
     setup_error = ::posix_spawnattr_init(&attributes);
     if (setup_error != 0) {
         ::posix_spawn_file_actions_destroy(&actions);
-        return fail(std::string("spawn attributes: ") + std::strerror(setup_error));
+        return fail("spawn attributes", setup_error);
     }
     short flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF;
 #if defined(__APPLE__)
@@ -406,7 +409,7 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
     if (setup_error != 0) {
         ::posix_spawn_file_actions_destroy(&actions);
         ::posix_spawnattr_destroy(&attributes);
-        return fail(std::string("spawn attributes: ") + std::strerror(setup_error));
+        return fail("spawn attributes", setup_error);
     }
 
     std::vector<char*> argv;
@@ -425,7 +428,7 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
     ::posix_spawn_file_actions_destroy(&actions);
     ::posix_spawnattr_destroy(&attributes);
     if (spawn_error != 0) {
-        return fail("posix_spawn " + request.executable + ": " + std::strerror(spawn_error));
+        return fail("posix_spawn " + request.executable, spawn_error);
     }
 
 #if defined(__APPLE__)
@@ -449,9 +452,9 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
         int status = 0;
         while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
 #if defined(__APPLE__)
-        return fail(std::string("native exit observer: ") + std::strerror(error));
+        return fail("native exit observer", error);
 #else
-        return fail(std::string("pidfd_open: ") + std::strerror(error));
+        return fail("pidfd_open", error);
 #endif
     }
 
@@ -463,7 +466,7 @@ std::unique_ptr<Child_process> Child_process::spawn(const Spawn_request& request
     if (!set_nonblocking(stdin_fd) || !set_nonblocking(stdout_fd) || !set_nonblocking(stderr_fd) ||
         ::fcntl(stdin_fd, F_SETNOSIGPIPE, 1) < 0 || ::kill(pid, SIGCONT) < 0)
     {
-        return fail(std::string("native child stream or resume: ") + std::strerror(errno));
+        return fail("native child stream or resume", errno);
     }
     return child;
 #else

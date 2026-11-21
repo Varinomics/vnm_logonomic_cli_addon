@@ -67,6 +67,19 @@ struct Helper_environment
     std::string helpers_dir;          // LOGONOMIC_PROVIDER_HELPERS_DIR
 };
 
+enum class Helper_local_failure
+{
+    INVALID_ARGUMENTS, SPAWN_FAILED, CANCELLED, TIMED_OUT, OUTPUT_TOO_LARGE,
+    ABNORMAL_EXIT, WRAPPER_FAILED, INVALID_RESPONSE
+};
+
+/// Developer detail contains only SDK-owned text and numeric status or size.
+struct Helper_local_diagnostic
+{
+    Helper_local_failure failure;
+    std::string          detail;
+};
+
 /// The host-owned, one-shot instruction decision for a title-capable hook.
 /// `completed` distinguishes a wrapper failure from a committed refusal.
 struct Title_instruction_result
@@ -77,6 +90,7 @@ struct Title_instruction_result
     std::string instruction;
     std::string reason;
     int         exit_code            = 0;
+    std::optional<Helper_local_diagnostic> local_diagnostic;
 };
 
 /// Reads and validates the six variables. Reason
@@ -88,6 +102,20 @@ std::optional<Helper_environment> read_helper_environment(Contract_failure* out_
 std::optional<Helper_environment> parse_helper_environment(
     const std::vector<std::pair<std::string, std::string>>& environment,
     Contract_failure*                                       out_failure);
+
+struct Provider_event_identity
+{
+    std::string idempotency_key;
+    std::string transition_nonce;
+};
+
+/// Keep the event and both identities together until delivery and acknowledgement finish.
+struct Prepared_provider_event
+{
+    std::string             event_name;
+    Json_value              body;
+    Provider_event_identity identity = {random_nonce_hex(), random_nonce_hex()};
+};
 
 /// What one delivery ended as. `committed` is false for a transport
 /// failure, invalid arguments or the deadline; `exit_code` is then the
@@ -101,6 +129,8 @@ struct Provider_event_outcome
     std::optional<std::uint64_t> epoch;             // the epoch the event was applied to
     std::optional<Json_value>    helper_response;   // when the adapter returned one
     int                          exit_code = k_helper_exit_transport_failure;
+    Provider_event_identity      identity;
+    std::optional<Helper_local_diagnostic> local_diagnostic;
 };
 
 class Helper_client
@@ -121,6 +151,8 @@ public:
         const Json_value& body,
         std::string_view  idempotency_key  = {},
         std::string_view  transition_nonce = {});
+
+    Provider_event_outcome deliver_provider_event(Prepared_provider_event delivery);
 
     /// Releases the committed response retained for `idempotency_key`.
     /// Repeating an acknowledgement is idempotent until the journal TTL.
