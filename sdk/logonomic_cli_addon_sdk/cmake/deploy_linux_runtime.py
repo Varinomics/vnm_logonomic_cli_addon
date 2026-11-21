@@ -17,10 +17,18 @@ BASE_SYSTEM_LIBRARIES = re.compile(
 
 def run(arguments):
     environment = os.environ.copy()
+    environment["LC_ALL"] = "C"
     for name in ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT"):
         environment.pop(name, None)
-    result = subprocess.run([str(value) for value in arguments], env=environment,
-                            capture_output=True, text=True, check=True)
+    try:
+        result = subprocess.run([str(value) for value in arguments], env=environment,
+                                capture_output=True, text=True, check=True)
+    except FileNotFoundError as error:
+        tool = str(arguments[0])
+        packages = {"ldd": "libc-bin", "readelf": "binutils", "dpkg-query": "dpkg"}
+        if tool in packages:
+            raise ValueError(f"Linux runtime packaging needs {tool}. Install {packages[tool]} in the builder.") from error
+        raise
     return result.stdout
 
 
@@ -44,7 +52,22 @@ def elf_files(package):
     return result
 
 
+def is_static_executable(binary):
+    layout = run(["readelf", "--wide", "--program-headers", "--dynamic", binary])
+    if not re.search(r"^  LOAD\s", layout, re.MULTILINE) or re.search(r"^  INTERP\s", layout, re.MULTILINE):
+        return False
+    if "Elf file type is EXEC " in layout:
+        return "There is no dynamic section in this file." in layout and not re.search(r"^  DYNAMIC\s", layout, re.MULTILINE)
+    # A static PIE uses its dynamic section for self-relocation. Ordinary
+    # shared libraries also lack an interpreter, so require the PIE flag.
+    return ("Elf file type is DYN " in layout and
+            re.search(r"\(FLAGS_1\)[^\n]*\bPIE\b", layout) is not None and
+            not re.search(r"\((?:NEEDED|FILTER|AUXILIARY|AUDIT|DEPAUDIT)\)", layout))
+
+
 def dependencies(binary):
+    if is_static_executable(binary):
+        return []
     result = []
     for line in run(["ldd", binary]).splitlines():
         line = line.strip()
@@ -127,7 +150,8 @@ def runtime_material(source, name, notices, prebuilt=None):
         if owner:
             break
     if owner is None:
-        raise ValueError(f"Runtime has no source-package provenance: {source}")
+        raise ValueError(f"Runtime has no source-package provenance: {source}. "
+                         "Use a library installed by the builder's Debian or Ubuntu package manager.")
     fields = run(["dpkg-query", "-W", "-f=${binary:Package}\t${Version}\t${source:Package}\t${source:Version}",
                   owner]).split("\t")
     if len(fields) != 4 or not all(fields):
@@ -135,6 +159,9 @@ def runtime_material(source, name, notices, prebuilt=None):
     notice = Path("/usr/share/doc") / owner.split(":", 1)[0] / "copyright"
     if notices is not None and (notices / (name + ".txt")).is_file():
         notice = notices / (name + ".txt")
+    if not notice.is_file():
+        raise ValueError(f"Missing copyright notice for {owner}: {notice}. "
+                         f"Restore the packaged copyright file or supply {name}.txt through RUNTIME_NOTICES.")
     contents = notice.read_text(encoding="utf-8")
     distribution = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
                         if "=" in line)["ID"].strip('"')
@@ -238,6 +265,8 @@ def deploy(package, configuration, patchelf, notices=None):
         if digest(target) != source_hash or digest(source) != source_hash:
             raise ValueError(f"Runtime source changed while copying: {source}")
     for binary in elf_files(package):
+        if is_static_executable(binary):
+            continue
         relative = os.path.relpath(package / "adapter", binary.parent)
         rpath = "$ORIGIN" if relative == "." else "$ORIGIN/" + relative
         run([patchelf, "--set-rpath", rpath, binary])
@@ -287,4 +316,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or error.stdout or "").strip()
+        raise SystemExit(f"Linux runtime packaging: {error.cmd[0]} exited {error.returncode}. {detail}".rstrip())
+    except (ValueError, OSError) as error:
+        raise SystemExit(f"Linux runtime packaging: {error}")

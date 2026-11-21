@@ -217,6 +217,8 @@ if(LOGONOMIC_CLI_ADDON_SDK_BUILD_TESTS)
                     "-DSDK_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}"
                     "-DINDEX_TOOL=$<TARGET_FILE:logonomic_cli_addon_index>"
                     "-DVALIDATE_TOOL=$<TARGET_FILE:logonomic_cli_addon_validate>"
+                    "-DTEST_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+                    "-DTEST_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}"
                     "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/linux_runtime_recipe_tests"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/linux_runtime_recipe_tests.cmake")
             set_tests_properties(logonomic_cli_addon_linux_runtime_recipe_tests PROPERTIES

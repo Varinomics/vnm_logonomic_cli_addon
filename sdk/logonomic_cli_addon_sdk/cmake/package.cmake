@@ -59,6 +59,10 @@ function(logonomic_cli_addon_package_indexer out_command out_dependencies)
         endforeach()
         find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
         find_program(_logonomic_cli_addon_patchelf patchelf REQUIRED)
+        find_program(_logonomic_cli_addon_readelf readelf NO_CACHE)
+        if(NOT _logonomic_cli_addon_readelf)
+            message(FATAL_ERROR "Linux package assembly requires readelf. Install binutils in the builder.")
+        endif()
         set(deployer "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/deploy_linux_runtime.py")
         set(command "${Python3_EXECUTABLE}" -B "${deployer}" deploy
             --configuration "$<CONFIG>" --patchelf "${_logonomic_cli_addon_patchelf}"

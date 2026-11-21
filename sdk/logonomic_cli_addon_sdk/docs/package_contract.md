@@ -302,7 +302,8 @@ unindexed program and resource bytes; imported generations are immutable.
 
 Libraries occupy one copy per filename under `adapter/`. Programs and libraries
 use relative ELF search paths to that directory, so the indexed package loads
-after custody relocation. Every ELF, including each library, must resolve its
+after custody relocation. A fully static executable keeps its linked bytes.
+Every ELF, including each library, must resolve its
 non-system dependencies inside the package. The supported OS supplies glibc
 and its loader; compiler, HTTP, database and other runtimes belong to the
 package. Conflicting library bytes fail assembly.
@@ -318,6 +319,28 @@ must identify the necessary binary and the applicable vendor-variant availabilit
 constraint under the release-payload policy.
 The provider export gate verifies the final package closure before retaining
 its archive.
+
+### Build DeskTool on Ubuntu 24.04
+
+Use a native Ubuntu 24.04 amd64 environment with its distribution compiler,
+runtime packages, package database and copyright files installed together.
+The provider builds use this Ubuntu release. From the root of the add-on
+repository, these commands build and check the example:
+
+```sh
+sudo apt-get update
+sudo apt-get install --no-install-recommends build-essential cmake ninja-build python3 binutils patchelf
+cmake -S sdk/logonomic_cli_addon_sdk/examples/desktool -B build/desktool-linux \
+  -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=/usr/bin/g++
+cmake --build build/desktool-linux --parallel 4
+ctest --test-dir build/desktool-linux --output-on-failure
+```
+
+The target is x86-64 Linux with a system glibc and loader compatible with the
+linked binaries. For a missing runtime provenance error, run
+`dpkg-query -S /absolute/path/from/the/error` inside the builder and check
+the owning package's `/usr/share/doc/<package>/copyright`. Install the
+distribution runtime through its package manager so the bytes and records match.
 
 A custom assembler that already owns copying and RPATH deployment obtains the
 same producer with `logonomic_cli_addon_linux_runtime_deployer(out_script)`.
