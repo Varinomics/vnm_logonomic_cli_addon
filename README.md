@@ -30,19 +30,11 @@ uses to start adapters and exchange messages with them. See
 
 ## Build
 
-Build the SDK, simulator and package tools from the SDK directory. These
-tools let you develop and test an adapter without the desktop or its native
-host. [SDK build and test instructions](sdk/logonomic_cli_addon_sdk/docs/sdk_tools.md#building-the-sdk-tools)
-
-To build the optional native host, configure from **this repository root**
-with `-DLOGONOMIC_CLI_ADDON_BUILD_HOST=ON` and use the same build and test
-commands. The host also requires CMake 3.22 or newer, Qt 6.12 Core and
-access to the sources for [vnm_process_custody](https://github.com/Varinomics/vnm_process_custody)
-and [vnm_qt_dispatch](https://github.com/Varinomics/vnm_qt_dispatch).
-If your account cannot read the custody repository, you need a source
-checkout from its owner to build the native host.
-To use local checkouts, set `FETCHCONTENT_SOURCE_DIR_VNM_PROCESS_CUSTODY`
-and `FETCHCONTENT_SOURCE_DIR_VNM_QT_DISPATCH` to their absolute paths.
+Build the SDK, simulator and package tools from the SDK directory. Use the
+simulator to test how your adapter responds to requests. To try the add-on
+in Logonomic, load the package in a separate desktop profile.
+[SDK build instructions](sdk/logonomic_cli_addon_sdk/docs/sdk_tools.md#building-the-sdk-tools) ·
+[Test a package in Logonomic](CONTRIBUTING.md#build-a-provider-locally)
 
 ## Match a desktop release
 

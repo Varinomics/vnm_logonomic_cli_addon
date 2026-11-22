@@ -33,10 +33,19 @@ exported package with the SDK. [Standalone provider workflow](.github/workflows/
 
 ## Working on the host
 
+The desktop ships the native host. To build the host itself, run the
+[SDK build commands](sdk/logonomic_cli_addon_sdk/docs/sdk_tools.md#building-the-sdk-tools)
+from the repository root and add `-DLOGONOMIC_CLI_ADDON_BUILD_HOST=ON` to
+the configure command. The [host build](host/CMakeLists.txt) uses Qt Core,
+[vnm_qt_dispatch](https://github.com/Varinomics/vnm_qt_dispatch) and
+`vnm_process_custody`, the private library that manages the lifetime of
+adapter processes. To build with a local copy of that library, set
+`FETCHCONTENT_SOURCE_DIR_VNM_PROCESS_CUSTODY` to its absolute path.
+
 Within the shared host, the [request broker](host/src/logonomic_cli_addon_request_broker.h)
 admits requests against the running adapter's negotiated capabilities,
 enforces deadlines and retires the activation when cancellation grace
 expires. Callers that need invocation policy use the broker. The
 [generation client](host/src/logonomic_cli_addon_generation_client.h) owns the
 transport, handshake and message exchange for each activation.
-[Host build](README.md#build) · [Process contract](sdk/logonomic_cli_addon_sdk/docs/process_contract.md)
+[Process contract](sdk/logonomic_cli_addon_sdk/docs/process_contract.md)
