@@ -38,8 +38,10 @@ The desktop ships the native host. To build the host itself, run the
 from the repository root and add `-DLOGONOMIC_CLI_ADDON_BUILD_HOST=ON` to
 the configure command. The [host build](host/CMakeLists.txt) uses Qt Core,
 [vnm_qt_dispatch](https://github.com/Varinomics/vnm_qt_dispatch) and
-`vnm_process_custody`, the private library that manages the lifetime of
-adapter processes. To build with a local copy of that library, set
+[vnm_process_custody](https://github.com/Varinomics/vnm_process_custody).
+The custody library manages adapter process lifetimes and is available under
+the [BSD 2-Clause license](https://github.com/Varinomics/vnm_process_custody/blob/master/LICENSE).
+To build with a local custody checkout, set
 `FETCHCONTENT_SOURCE_DIR_VNM_PROCESS_CUSTODY` to its absolute path.
 
 Within the shared host, the [request broker](host/src/logonomic_cli_addon_request_broker.h)
