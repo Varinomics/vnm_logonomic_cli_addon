@@ -96,6 +96,9 @@ bool native_image(const std::filesystem::path& path);
 // shim. Callers verify the package and its bin identity and distribute the
 // npm cmd-shim ISC notice reproduced in src/npm_node_shim.cpp.
 std::optional<std::filesystem::path> npm_node_shim_entry(const std::filesystem::path& shim);
+// Returns the installed native executable when a complete stock Windows npm
+// shim forwards directly to its package's matching bin export.
+std::optional<std::filesystem::path> npm_native_shim_entry(const std::filesystem::path& shim);
 #endif
 // Prefer Direct for the already-selected native executable. Script wrappers
 // retain their existing runner; this does not resolve PATH or run a process.

@@ -25,6 +25,7 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <iterator>
 
 namespace logonomic::cli_addon {
 namespace {
@@ -78,9 +79,37 @@ if (Test-Path "$basedir/node$exe") {
 exit $ret
 )npm";
 
-} // namespace
+constexpr std::string_view k_native_cmd_shim = R"npm(@ECHO off
+GOTO start
+:find_dp0
+SET dp0=%~dp0
+EXIT /b
+:start
+SETLOCAL
+CALL :find_dp0
+"%dp0%\@ENTRY@"   %*
+)npm";
 
-std::optional<std::filesystem::path> npm_node_shim_entry(const std::filesystem::path& shim)
+constexpr std::string_view k_native_powershell_shim = R"npm(#!/usr/bin/env pwsh
+$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent
+
+$exe=""
+if ($PSVersionTable.PSVersion -lt "6.0" -or $IsWindows) {
+  # Fix case when both the Windows and Linux builds of Node
+  # are installed in the same directory
+  $exe=".exe"
+}
+# Support pipeline input
+if ($MyInvocation.ExpectingInput) {
+  $input | & "$basedir/@ENTRY@"   $args
+} else {
+  & "$basedir/@ENTRY@"   $args
+}
+exit $LASTEXITCODE
+)npm";
+
+std::optional<std::filesystem::path> shim_relative_entry(const std::filesystem::path& shim,
+    std::string_view cmd_template, std::string_view powershell_template)
 {
     const auto extension = lower(path_to_utf8(shim.extension()));
     if (!shim.is_absolute() || (extension != ".cmd" && extension != ".ps1")) {
@@ -98,7 +127,7 @@ std::optional<std::filesystem::path> npm_node_shim_entry(const std::filesystem::
     for (auto pos = bytes.find("\r\n"); pos != std::string::npos; pos = bytes.find("\r\n", pos + 1)) {
         bytes.erase(pos, 1);
     }
-    auto pattern = extension == ".cmd" ? k_npm_cmd_shim : k_npm_powershell_shim;
+    auto pattern = extension == ".cmd" ? cmd_template : powershell_template;
     auto script = std::string_view(bytes);
     constexpr std::string_view marker = "@ENTRY@";
     std::string_view target;
@@ -126,7 +155,65 @@ std::optional<std::filesystem::path> npm_node_shim_entry(const std::filesystem::
     if (entry.has_root_path()) {
         return std::nullopt;
     }
-    return regular_file(shim.parent_path() / entry);
+    return entry;
+}
+
+} // namespace
+
+std::optional<std::filesystem::path> npm_node_shim_entry(const std::filesystem::path& shim)
+{
+    const auto entry = shim_relative_entry(shim, k_npm_cmd_shim, k_npm_powershell_shim);
+    return entry ? regular_file(shim.parent_path() / *entry) : std::nullopt;
+}
+
+std::optional<std::filesystem::path> npm_native_shim_entry(const std::filesystem::path& shim)
+{
+    namespace fs = std::filesystem;
+    const auto entry = shim_relative_entry(shim, k_native_cmd_shim, k_native_powershell_shim);
+    if (!entry || lower(path_to_utf8(entry->extension())) != ".exe" ||
+        *entry != entry->lexically_normal() || *entry->begin() != "node_modules") {
+        return std::nullopt;
+    }
+    auto part = std::next(entry->begin());
+    if (part == entry->end()) {
+        return std::nullopt;
+    }
+    auto package = *part++;
+    if (path_to_utf8(package).starts_with('@') && part != entry->end()) {
+        package /= *part++;
+    }
+    if (part == entry->end()) {
+        return std::nullopt;
+    }
+    const auto root = shim.parent_path() / "node_modules" / package;
+    const auto manifest = Directory_package_source(root).read("package.json", 256 * 1024, nullptr);
+    const auto json = manifest ? parse_json(*manifest, {}, nullptr) : std::nullopt;
+    const auto* name = json ? json->find("name") : nullptr;
+    const auto* bin = json ? json->find("bin") : nullptr;
+    if (!name || !name->is_string() || path_from_utf8(name->as_string()) != package || !bin) {
+        return std::nullopt;
+    }
+    if (bin->is_object()) {
+        bin = bin->find(path_to_utf8(shim.stem()));
+    }
+    else if (package.filename() != shim.stem()) {
+        return std::nullopt;
+    }
+    if (!bin || !bin->is_string()) {
+        return std::nullopt;
+    }
+    const auto declared = path_from_utf8(bin->as_string()).lexically_normal();
+    const auto expected = (shim.parent_path() / *entry).lexically_relative(root);
+    if (declared != expected) {
+        return std::nullopt;
+    }
+    const auto target = regular_file(root / declared);
+    if (!target || !native_image(*target)) {
+        return std::nullopt;
+    }
+    std::error_code error;
+    const auto actual = fs::relative(*target, root, error);
+    return !error && actual == expected ? target : std::nullopt;
 }
 
 } // namespace logonomic::cli_addon

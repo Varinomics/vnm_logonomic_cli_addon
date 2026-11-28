@@ -473,6 +473,26 @@ void primitives(const fs::path& executable, const fs::path& root)
 #endif
     const auto program = root / "bin" / name;
     fs::copy_file(executable, program);
+#ifdef _WIN32
+    const auto package = root / "node_modules" / "@example" / "tool";
+    fs::create_directories(package / "bin");
+    const auto native = package / "bin" / "tool.exe";
+    fs::copy_file(executable, native);
+    const auto shim = root / "tool.cmd";
+    const auto manifest = package / "package.json";
+    std::ofstream(manifest) << R"({"name":"@example/tool","bin":{"tool":"bin/tool.exe"}})";
+    const std::string native_wrapper =
+        "@ECHO off\nGOTO start\n:find_dp0\nSET dp0=%~dp0\nEXIT /b\n:start\nSETLOCAL\nCALL :find_dp0\n"
+        "\"%dp0%\\node_modules\\@example\\tool\\bin\\tool.exe\"   %*\n";
+    std::ofstream(shim) << native_wrapper;
+    require(addon::npm_native_shim_entry(shim) == native, "stock native npm shim resolves the exact manifest export");
+    require(!addon::npm_node_shim_entry(shim), "native npm shim is distinct from a Node launcher");
+    std::ofstream(shim, std::ios::app) << "echo another action\n";
+    require(!addon::npm_native_shim_entry(shim), "an extra shim command prevents direct launch");
+    std::ofstream(shim) << native_wrapper;
+    std::ofstream(manifest) << R"({"name":"@example/tool","bin":{"other":"bin/tool.exe"}})";
+    require(!addon::npm_native_shim_entry(shim), "an unrelated npm bin export cannot authorize the native program");
+#endif
     const auto cwd = addon::path_to_utf8(root);
     environment = {{"PATH", "bin"}};
     require(!addon::resolve_program(name, environment, {}), "relative PATH requires explicit cwd");
