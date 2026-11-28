@@ -47,6 +47,8 @@ inline constexpr const char* k_managed_configuration_capability_id = "managed-co
 inline constexpr const char* k_account_profile_managed_configuration_capability_id =
     "account-profile-managed-configuration";
 inline constexpr const char* k_structured_session_capability_id    = "structured-session";
+inline constexpr const char* k_authoring_session_capability_id     = "authoring-session";
+inline constexpr std::uint16_t k_authoring_session_version = 1;
 inline constexpr const char* k_structured_failure_diagnostics_capability_id = "structured-failure-diagnostics";
 inline constexpr std::uint16_t k_structured_failure_diagnostics_version = 1;
 inline constexpr const char* k_delegated_session_capability_id     = "delegated-session";

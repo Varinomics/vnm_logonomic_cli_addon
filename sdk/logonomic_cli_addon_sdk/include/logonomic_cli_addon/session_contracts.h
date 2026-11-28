@@ -182,6 +182,14 @@ Json_value encode_structured_inspect_request(const Structured_inspect_request& r
 std::optional<Structured_inspect_request> decode_structured_inspect_request(
     const Json_value& payload, Contract_failure* out_failure);
 
+/// authoring-session@1 reuses the structured wire format with the single
+/// read_only_review purpose. Other negotiated session contracts keep their
+/// own purpose rules.
+std::optional<Structured_prepare_request> decode_authoring_prepare_request(
+    const Json_value& payload, Contract_failure* out_failure);
+std::optional<Structured_inspect_request> decode_authoring_inspect_request(
+    const Json_value& payload, Contract_failure* out_failure);
+
 /// The presentation record kinds an inspection may report.
 enum class Presentation_event_kind
 {

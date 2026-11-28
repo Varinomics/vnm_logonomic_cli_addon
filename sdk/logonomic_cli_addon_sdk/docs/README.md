@@ -49,6 +49,7 @@ and [startup observation](startup_observer_1.md). Conversation export covers
 [recording its prepared source](conversation_export_2.md).
 
 **Run structured or delegated tasks.** Read [structured sessions](structured_session_3.md),
+[text-only authoring](authoring_session_1.md),
 [structured failure diagnostics](structured_failure_diagnostics_1.md),
 [delegated sessions](delegated_session_3.md) and [per-task model selection](delegated_model_selection_1.md).
 [Coordination delivery](coordination_delivery_1.md) defines how a provider

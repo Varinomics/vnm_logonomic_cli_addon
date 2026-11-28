@@ -121,7 +121,7 @@ Adapters never return shell command strings.
 Any other object form is `frame_violation`. `Process_executable` carries the
 two forms; `validate_process_proposal` takes a `Process_proposal_policy` whose
 `launcher_program_allowed` is true for the session contracts
-(structured-session@3, delegated-session@3, interactive-resume@2) and false for
+(structured-session@3, authoring-session@1, delegated-session@3, interactive-resume@2) and false for
 the conformance probe, where a launcher-program reference is `path_escape`.
 
 ## Standard streams

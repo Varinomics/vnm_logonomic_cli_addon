@@ -68,7 +68,7 @@ session, subsequent checks that need a new session report that same failure.
 | Check | Proves |
 |---|---|
 | `package.validates` | the directory passes the package contract; prints the package ID and generation digest |
-| `declaration.launcher_environment` | `launcher-discovery@1` and `launch-preparation@3` each declare valid, distinct, non-reserved environment names within the host's limit |
+| `declaration.launcher_environment` | `launcher-discovery@1`, `launch-preparation@3` and `authoring-session@1` each declare valid, distinct, non-reserved environment names within the host's limit |
 | `declaration.presentation` | `presentation@1` has a valid display name, icon paths and optional accent. Both icon references resolve to indexed assets whose bytes pass the SDK icon inspection |
 | `declaration.launcher_approval` | `launcher-approval@1` declares an empty payload object |
 | `declaration.delegated_model_selection` | `delegated-model-selection@1` declares model and reasoning effort as booleans with at least one enabled |

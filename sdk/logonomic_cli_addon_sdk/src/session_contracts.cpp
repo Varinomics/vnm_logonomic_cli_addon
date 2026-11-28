@@ -42,6 +42,16 @@ bool valid_failure_diagnostics(const Structured_failure_diagnostics& diagnostics
         diagnostics.message.find('\0') == std::string::npos && is_valid_utf8(diagnostics.message);
 }
 
+template <typename Request>
+std::optional<Request> authoring_request(std::optional<Request> request, Contract_failure* failure)
+{
+    if (request && request->purpose != Structured_purpose::READ_ONLY_REVIEW) {
+        report(failure, reason::k_purpose_unavailable, "authoring-session requires read_only_review");
+        return std::nullopt;
+    }
+    return request;
+}
+
 Json_value encode_chunks(std::string_view bytes)
 {
     Json_value chunks = Json_value::array();
@@ -1170,6 +1180,18 @@ std::optional<Structured_inspect_request> decode_structured_inspect_request(
     }
     decode_model_state_request(value, request.model_state_version, request.model_failure);
     return request;
+}
+
+std::optional<Structured_prepare_request> decode_authoring_prepare_request(
+    const Json_value& payload, Contract_failure* out_failure)
+{
+    return authoring_request(decode_structured_prepare_request(payload, out_failure), out_failure);
+}
+
+std::optional<Structured_inspect_request> decode_authoring_inspect_request(
+    const Json_value& payload, Contract_failure* out_failure)
+{
+    return authoring_request(decode_structured_inspect_request(payload, out_failure), out_failure);
 }
 
 Json_value encode_probe_prepare_request(const Probe_prepare_request& request, std::uint16_t version)
