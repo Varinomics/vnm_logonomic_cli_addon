@@ -33,7 +33,8 @@ approval arguments.
 ([version 1](managed_configuration_1.md), [version 2](managed_configuration_2.md),
 [version 3](managed_configuration_3.md)). A package can declare
 [account-specific managed configuration](account_profile_managed_configuration_1.md)
-and an [account pet](account_pet_1.md).
+and an [account pet](account_pet_1.md). A host can also check
+[authoring availability for a selected profile](authoring_availability_1.md).
 
 **Report sign-in and quota.** The [authentication](auth_status_2.md) and
 [current-account](current_account_1.md) contracts identify the observed

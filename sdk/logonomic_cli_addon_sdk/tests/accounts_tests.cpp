@@ -1,6 +1,7 @@
 #include "sdk_test_support.h"
 
 #include "logonomic_cli_addon/accounts.h"
+#include "logonomic_cli_addon/authoring_availability.h"
 #include "logonomic_cli_addon/launch_preparation.h"
 #include "logonomic_cli_addon/package_source.h"
 #include "logonomic_cli_addon/presentation_record.h"
@@ -314,6 +315,27 @@ bool test_accounts_contracts()
         "accounts launcher discovery requires its frozen environment");
 
     addon::Account_context located{2, "profile-sha256-key", path};
+    auto check = addon::encode_authoring_availability_request({configured, located});
+    const auto availability = addon::decode_authoring_availability_request(check, &failure);
+    SDK_CHECK(availability && availability->account_context && availability->account_context->profile_path == path &&
+        availability->launcher.normalization_directory == configured.normalization_directory &&
+        !addon::decode_accounts_launcher_request(check, &failure), "eligibility carries a separate, scoped account grant");
+    check.set("prompt", addon::Json_value("a model turn"));
+    SDK_CHECK(!addon::decode_authoring_availability_request(check, &failure), "eligibility has no model prompt");
+    const auto denied = addon::encode_authoring_availability_result({false, "Hooks are enabled.", located});
+    const auto denial = addon::decode_authoring_availability_result(denied, located, &failure);
+    SDK_CHECK(denial && !denial->available && denial->reason == "Hooks are enabled.", "profile-specific refusal");
+    auto other = located;
+    other.profile_path = path + "/other";
+    SDK_CHECK(!addon::decode_authoring_availability_result(denied, other, &failure) &&
+        !addon::decode_authoring_availability_result(denied, std::nullopt, &failure), "reject mismatched or invented grants");
+    const auto allowed = addon::encode_authoring_availability_result({true, {}, std::nullopt});
+    SDK_CHECK(addon::decode_authoring_availability_result(allowed, std::nullopt, &failure) &&
+        !addon::decode_authoring_availability_result(allowed, located, &failure), "require the selected account on an eligible result");
+    for (const std::string reason : {std::string{}, std::string("  "), std::string("bad\nreason"), std::string(1025, 'x')}) {
+        const auto invalid_result = addon::encode_authoring_availability_result({false, reason, located});
+        SDK_CHECK(!addon::decode_authoring_availability_result(invalid_result, located, &failure), "refusal requires a bounded single-line reason");
+    }
     patch.account_context = located;
     SDK_CHECK(!addon::account_context_acknowledgment_failure(located, addon::encode_launch_patch(patch)),
         "profile locator acknowledgment preserves identity independent of the opaque key length");

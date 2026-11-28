@@ -42,6 +42,8 @@ const addon::Capability_pair k_probe{"conformance-probe", 1};
 const addon::Capability_pair k_profile_storage{addon::k_profile_storage_capability_id, addon::k_profile_storage_version};
 const addon::Capability_pair k_discovery{addon::k_launcher_discovery_capability_id, addon::k_launcher_discovery_version};
 const addon::Capability_pair k_authoring{addon::k_authoring_session_capability_id, addon::k_authoring_session_version};
+const addon::Capability_pair k_authoring_availability{
+    addon::k_authoring_availability_capability_id, addon::k_authoring_availability_version};
 const addon::Capability_pair k_preparation{
     addon::k_launch_preparation_capability_id, addon::k_launch_preparation_execution_version};
 const addon::Capability_pair k_presentation{addon::k_presentation_capability_id, addon::k_presentation_version};
@@ -321,7 +323,7 @@ private:
             addon::Contract_failure failure;
             const char* check;
             bool valid;
-            if (pair == k_discovery || pair == k_preparation || pair == k_authoring) {
+            if (pair == k_discovery || pair == k_preparation || pair == k_authoring || pair == k_authoring_availability) {
                 check = "declaration.launcher_environment";
                 valid = addon::decode_launcher_discovery_declaration(sidecar.payload, &failure).has_value();
             }

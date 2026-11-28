@@ -48,6 +48,7 @@ set(_logonomic_cli_addon_sdk_sources
     src/account_pet.cpp
     src/account_refresh.cpp
     src/accounts.cpp
+    src/authoring_availability.cpp
     src/adapter_runtime.cpp
     src/assistant_reply_evidence.cpp
     src/bootstrap.cpp
